@@ -1,0 +1,4 @@
+com\hyperlocal\config\database\DatabaseConfig.class
+com\hyperlocal\config\cache\RedisConfig.class
+com\hyperlocal\config\security\SecurityConfig.class
+com\hyperlocal\config\queue\RabbitMQConfig.class

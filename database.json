@@ -1,0 +1,71 @@
+{
+  "config": {
+    "maintenanceMode": false,
+    "appVersion": "2.4.12",
+    "forceUpdateRequired": false,
+    "apiVersion": "v1.4",
+    "otpLength": 6,
+    "otpExpirySeconds": 60,
+    "enabledLoginMethods": [
+      "phone",
+      "google",
+      "apple"
+    ],
+    "passwordPolicyRegex": "^(?=.*[A-Za-z])(?=.*\\d)[A-Za-z\\d]{8,}$",
+    "sessionTimeoutSeconds": 3600,
+    "maxLoginAttempts": 5,
+    "baseDeliveryFee": 2.5,
+    "deliveryFeePerMile": 0.75,
+    "platformFee": 0.5,
+    "taxRate": 0.08,
+    "termsUrl": "https://cdn.hyperlocal.app/legal/terms.html",
+    "privacyUrl": "https://cdn.hyperlocal.app/legal/privacy.html"
+  },
+  "user": {
+    "name": "Kishore R",
+    "email": "Kishore.r.cseacet@gmail.com",
+    "mobileNumber": "+15559990001",
+    "gender": "Male",
+    "dob": "1995-08-12",
+    "profilePhotoUrl": "https://cdn.hyperlocal.app/users/avatars/default.png",
+    "addresses": [
+      "123 Market St, San Francisco, CA 94103"
+    ],
+    "savedPlaces": {
+      "Home": "123 Market St, San Francisco"
+    },
+    "preferredLanguage": "English",
+    "preferredCurrency": "USD",
+    "themePreference": "light",
+    "walletBalance": 50.0
+  },
+  "branches": {
+    "branch-a": {
+      "id": "branch-a",
+      "name": "Downtown Main Hub",
+      "address": "100 Main St, San Francisco",
+      "workingHours": "08:00 AM - 10:00 PM",
+      "isOpen": true,
+      "categories": [
+        {
+          "id": "medical",
+          "label": "medical",
+          "iconUrl": "\ud83d\ude37",
+          "isAvailable": true,
+          "displayOrder": 1
+        }
+      ],
+      "products": [
+        {
+          "id": "tablet",
+          "categoryId": "medical",
+          "name": "tablet",
+          "description": "",
+          "price": 100.0,
+          "isAvailable": true
+        }
+      ]
+    }
+  },
+  "orders": []
+}

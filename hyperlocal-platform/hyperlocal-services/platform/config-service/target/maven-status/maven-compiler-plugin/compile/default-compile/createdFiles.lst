@@ -1,0 +1,5 @@
+com\hyperlocal\config\infrastructure\adapter\inbound\ConfigController.class
+com\hyperlocal\config\infrastructure\repository\ConfigRepository.class
+com\hyperlocal\config\application\service\ConfigService.class
+com\hyperlocal\config\ConfigApplication.class
+com\hyperlocal\config\infrastructure\entity\ConfigEntity.class

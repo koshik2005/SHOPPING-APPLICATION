@@ -1,0 +1,530 @@
+version: '3.9'
+
+# ==============================================================================
+# HyperLocal Enterprise Platform — Complete Docker Compose Manifest
+# Free & Open-Source First Production Stack
+#
+# Infrastructure Services:
+#   PostgreSQL + PostGIS, Redis CE, RabbitMQ CE, MinIO, MailHog
+#
+# Observability:
+#   Prometheus, Grafana, Loki, Alertmanager
+#
+# Platform Services:
+#   API Gateway, Auth, Branch, Config, Notification, Audit, Scheduler
+#
+# Business Services:
+#   Customer, Shop, Inventory, Search, Cart, Order, Payment,
+#   Wallet, Delivery, Mobility, Support, AI, Reporting, BranchManager
+#
+# Usage:
+#   docker-compose up -d                 # Start all services
+#   docker-compose up -d postgres redis  # Start only infrastructure
+#   docker-compose logs -f auth-service  # Tail a service log
+# ==============================================================================
+
+x-common-env: &common-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: hyperlocal_db
+  DB_USER: ${DB_USER:-hyperlocal_user}
+  DB_PASS: ${DB_PASS:-hyperlocal_secure_pass}
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+  RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+  SMTP_HOST: mailhog
+  SMTP_PORT: "1025"
+  JWT_SECRET: ${JWT_SECRET:-HyperLocalDevSecretKeyForJWTSigningMinimum256BitsLong!}
+  GOOGLE_CLIENT_WEB_ID: ${GOOGLE_CLIENT_WEB_ID:-}
+  JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 30s
+  timeout: 10s
+  retries: 5
+  start_period: 60s
+
+networks:
+  hyperlocal-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+
+services:
+
+  # ============================================================
+  # INFRASTRUCTURE LAYER
+  # ============================================================
+
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: hyperlocal-postgres
+    environment:
+      POSTGRES_DB: hyperlocal_db
+      POSTGRES_USER: ${DB_USER:-hyperlocal_user}
+      POSTGRES_PASSWORD: ${DB_PASS:-hyperlocal_secure_pass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - hyperlocal-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hyperlocal_user} -d hyperlocal_db"]
+      <<: *healthcheck-defaults
+
+  redis:
+    image: redis:7-alpine
+    container_name: hyperlocal-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - hyperlocal-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      <<: *healthcheck-defaults
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: hyperlocal-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - hyperlocal-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      <<: *healthcheck-defaults
+
+  minio:
+    image: minio/minio:latest
+    container_name: hyperlocal-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-hyperlocal_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-hyperlocal_minio_pass}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - hyperlocal-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      <<: *healthcheck-defaults
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: hyperlocal-mailhog
+    ports:
+      - "1025:1025"  # SMTP port
+      - "8025:8025"  # Web UI
+    networks:
+      - hyperlocal-network
+
+  # ============================================================
+  # OBSERVABILITY LAYER
+  # ============================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hyperlocal-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - hyperlocal-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/ready"]
+      <<: *healthcheck-defaults
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: hyperlocal-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASS:-hyperlocal_grafana}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - hyperlocal-network
+    depends_on:
+      - prometheus
+      - loki
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      <<: *healthcheck-defaults
+
+  loki:
+    image: grafana/loki:latest
+    container_name: hyperlocal-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - hyperlocal-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      <<: *healthcheck-defaults
+
+  # ============================================================
+  # PLATFORM SERVICES LAYER
+  # ============================================================
+
+  api-gateway:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-api-gateway
+        SERVICE_JAR: hyperlocal-api-gateway/target/hyperlocal-api-gateway-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-api-gateway
+    environment:
+      <<: *common-env
+      SERVICE_AUTH_URL: http://auth-service:8081
+      SERVICE_CUSTOMER_URL: http://customer-service:8082
+      SERVICE_INVENTORY_URL: http://inventory-service:8083
+      SERVICE_ORDER_URL: http://order-service:8084
+      SERVICE_PAYMENT_URL: http://payment-service:8085
+      SERVICE_WALLET_URL: http://wallet-service:8086
+      SERVICE_DELIVERY_URL: http://delivery-service:8087
+      SERVICE_BRANCH_URL: http://branch-service:8088
+      SERVICE_SEARCH_URL: http://search-service:8089
+      SERVICE_CONFIG_URL: http://config-service:8090
+      SERVICE_AUDIT_URL: http://audit-service:8091
+      SERVICE_NOTIFICATION_URL: http://notification-service:8092
+      SERVICE_SCHEDULER_URL: http://scheduler-service:8093
+      SERVICE_SHOP_URL: http://shop-service:8094
+      SERVICE_BRANCH_MANAGER_URL: http://branch-manager-service:8095
+      SERVICE_CART_URL: http://cart-service:8096
+    ports:
+      - "8080:8080"
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      <<: *healthcheck-defaults
+
+  auth-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/platform/auth-service
+        SERVICE_JAR: hyperlocal-services/platform/auth-service/target/auth-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-auth-service
+    environment:
+      <<: *common-env
+      DB_NAME: hyperlocal_auth_db
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      <<: *healthcheck-defaults
+
+  notification-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/platform/notification-service
+        SERVICE_JAR: hyperlocal-services/platform/notification-service/target/notification-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-notification-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8092/actuator/health"]
+      <<: *healthcheck-defaults
+
+  branch-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/platform/branch-service
+        SERVICE_JAR: hyperlocal-services/platform/branch-service/target/branch-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-branch-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/actuator/health"]
+      <<: *healthcheck-defaults
+
+  audit-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/platform/audit-service
+        SERVICE_JAR: hyperlocal-services/platform/audit-service/target/audit-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-audit-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8091/actuator/health"]
+      <<: *healthcheck-defaults
+
+  # ============================================================
+  # BUSINESS SERVICES LAYER
+  # ============================================================
+
+  customer-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/business/customer-service
+        SERVICE_JAR: hyperlocal-services/business/customer-service/target/customer-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-customer-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      <<: *healthcheck-defaults
+
+  inventory-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/business/inventory-service
+        SERVICE_JAR: hyperlocal-services/business/inventory-service/target/inventory-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-inventory-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      <<: *healthcheck-defaults
+
+  order-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/business/order-service
+        SERVICE_JAR: hyperlocal-services/business/order-service/target/order-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-order-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/actuator/health"]
+      <<: *healthcheck-defaults
+
+  payment-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/business/payment-service
+        SERVICE_JAR: hyperlocal-services/business/payment-service/target/payment-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-payment-service
+    environment:
+      <<: *common-env
+      PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-SIMULATED}
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health"]
+      <<: *healthcheck-defaults
+
+  wallet-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/business/wallet-service
+        SERVICE_JAR: hyperlocal-services/business/wallet-service/target/wallet-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-wallet-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/actuator/health"]
+      <<: *healthcheck-defaults
+
+  cart-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/business/cart-service
+        SERVICE_JAR: hyperlocal-services/business/cart-service/target/cart-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-cart-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8096/actuator/health"]
+      <<: *healthcheck-defaults
+
+  search-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/business/search-service
+        SERVICE_JAR: hyperlocal-services/business/search-service/target/search-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-search-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8089/actuator/health"]
+      <<: *healthcheck-defaults
+
+  shop-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/business/shop-service
+        SERVICE_JAR: hyperlocal-services/business/shop-service/target/shop-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-shop-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8094/actuator/health"]
+      <<: *healthcheck-defaults
+
+  delivery-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/business/delivery-service
+        SERVICE_JAR: hyperlocal-services/business/delivery-service/target/delivery-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-delivery-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8087/actuator/health"]
+      <<: *healthcheck-defaults
+
+  support-service:
+    build:
+      context: ./hyperlocal-platform
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_PATH: hyperlocal-services/business/support-service
+        SERVICE_JAR: hyperlocal-services/business/support-service/target/support-service-1.0.0-SNAPSHOT.jar
+    container_name: hyperlocal-support-service
+    environment:
+      <<: *common-env
+    networks:
+      - hyperlocal-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8098/actuator/health"]
+      <<: *healthcheck-defaults

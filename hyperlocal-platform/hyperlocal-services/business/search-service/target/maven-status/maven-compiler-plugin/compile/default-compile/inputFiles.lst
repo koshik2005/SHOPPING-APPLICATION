@@ -1,0 +1,10 @@
+E:\shopping\hyperlocal-platform\hyperlocal-services\business\search-service\src\main\java\com\hyperlocal\search\application\service\SearchService.java
+E:\shopping\hyperlocal-platform\hyperlocal-services\business\search-service\src\main\java\com\hyperlocal\search\infrastructure\adapter\inbound\SearchController.java
+E:\shopping\hyperlocal-platform\hyperlocal-services\business\search-service\src\main\java\com\hyperlocal\search\infrastructure\dto\SearchQueryDto.java
+E:\shopping\hyperlocal-platform\hyperlocal-services\business\search-service\src\main\java\com\hyperlocal\search\infrastructure\dto\SearchResponseDto.java
+E:\shopping\hyperlocal-platform\hyperlocal-services\business\search-service\src\main\java\com\hyperlocal\search\infrastructure\dto\SearchSuggestionDto.java
+E:\shopping\hyperlocal-platform\hyperlocal-services\business\search-service\src\main\java\com\hyperlocal\search\infrastructure\entity\PopularSearchEntity.java
+E:\shopping\hyperlocal-platform\hyperlocal-services\business\search-service\src\main\java\com\hyperlocal\search\infrastructure\entity\SearchHistoryEntity.java
+E:\shopping\hyperlocal-platform\hyperlocal-services\business\search-service\src\main\java\com\hyperlocal\search\infrastructure\repository\PopularSearchRepository.java
+E:\shopping\hyperlocal-platform\hyperlocal-services\business\search-service\src\main\java\com\hyperlocal\search\infrastructure\repository\SearchHistoryRepository.java
+E:\shopping\hyperlocal-platform\hyperlocal-services\business\search-service\src\main\java\com\hyperlocal\search\SearchApplication.java

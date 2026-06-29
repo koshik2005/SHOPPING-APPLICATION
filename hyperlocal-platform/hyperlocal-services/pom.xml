@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.hyperlocal</groupId>
+        <artifactId>hyperlocal-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>hyperlocal-services</artifactId>
+    <packaging>pom</packaging>
+
+    <modules>
+        <!-- Platform Services -->
+        <module>platform/auth-service</module>
+        <module>platform/branch-service</module>
+        <module>platform/config-service</module>
+        <module>platform/notification-service</module>
+        <module>platform/audit-service</module>
+        <module>platform/scheduler-service</module>
+
+        <!-- Business Services -->
+        <module>business/customer-service</module>
+        <module>business/shop-service</module>
+        <module>business/inventory-service</module>
+        <module>business/search-service</module>
+        <module>business/cart-service</module>
+        <module>business/order-service</module>
+        <module>business/payment-service</module>
+        <module>business/wallet-service</module>
+        <module>business/mobility-service</module>
+        <module>business/support-service</module>
+        <module>business/reporting-service</module>
+        <module>business/ai-service</module>
+    </modules>
+</project>

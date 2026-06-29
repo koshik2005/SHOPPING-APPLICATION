@@ -1,0 +1,14 @@
+com\hyperlocal\wallet\infrastructure\dto\CreditDebitRequest.class
+com\hyperlocal\wallet\infrastructure\entity\WalletTransactionEntity.class
+com\hyperlocal\wallet\infrastructure\repository\WalletRepository.class
+com\hyperlocal\wallet\infrastructure\adapter\inbound\WalletController.class
+com\hyperlocal\wallet\application\service\WalletService.class
+com\hyperlocal\wallet\infrastructure\entity\WalletHoldEntity.class
+com\hyperlocal\wallet\infrastructure\dto\WalletDto.class
+com\hyperlocal\wallet\infrastructure\entity\WalletEntity.class
+com\hyperlocal\wallet\infrastructure\repository\WalletHoldRepository.class
+com\hyperlocal\wallet\infrastructure\repository\WalletTransactionRepository.class
+com\hyperlocal\wallet\infrastructure\dto\WalletDto$WalletDtoBuilder.class
+com\hyperlocal\wallet\infrastructure\dto\WalletTransactionDto.class
+com\hyperlocal\wallet\WalletApplication.class
+com\hyperlocal\wallet\infrastructure\dto\WalletTransactionDto$WalletTransactionDtoBuilder.class

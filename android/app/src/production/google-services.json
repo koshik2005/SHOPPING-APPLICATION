@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1086613811908",
+    "project_id": "hyperlocal-ef60e",
+    "storage_bucket": "hyperlocal-ef60e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1086613811908:android:e372f25ee676a85da8cf91",
+        "android_client_info": {
+          "package_name": "com.hyperlocal.app.shopping"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1086613811908-jn826n7fqs0ucdcnf2k4ve40vl29cgtl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.hyperlocal.app.shopping",
+            "certificate_hash": "bc2504aa88ba4eeec155e0a79ec1ad1926c35dde"
+          }
+        },
+        {
+          "client_id": "1086613811908-vf6okpd8jvr0f5oaqvnemujb7niooe7k.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpNcz9ktPqkLbKLTOVgaykSwoM_zZAzH8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1086613811908-vf6okpd8jvr0f5oaqvnemujb7niooe7k.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

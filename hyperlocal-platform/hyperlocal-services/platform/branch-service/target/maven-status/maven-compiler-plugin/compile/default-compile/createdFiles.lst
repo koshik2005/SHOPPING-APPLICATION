@@ -1,0 +1,5 @@
+com\hyperlocal\branch\infrastructure\entity\BranchEntity.class
+com\hyperlocal\branch\application\service\BranchService.class
+com\hyperlocal\branch\infrastructure\adapter\inbound\BranchController.class
+com\hyperlocal\branch\infrastructure\repository\BranchRepository.class
+com\hyperlocal\branch\BranchApplication.class
