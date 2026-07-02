@@ -1,4 +1,0 @@
-com\hyperlocal\audit\application\service\AuditLogService.class
-com\hyperlocal\audit\infrastructure\entity\AuditLogEntity.class
-com\hyperlocal\audit\AuditApplication.class
-com\hyperlocal\audit\infrastructure\repository\AuditLogRepository.class
