@@ -3,20 +3,11 @@
 FROM maven:3.9.6-eclipse-temurin-21 AS builder
 WORKDIR /build
 
-# Copy shared modules first (for Docker layer caching)
-COPY hyperlocal-core/ ./hyperlocal-core/
-COPY hyperlocal-common/ ./hyperlocal-common/
-COPY hyperlocal-configuration/ ./hyperlocal-configuration/
-COPY hyperlocal-integrations/ ./hyperlocal-integrations/
-COPY pom.xml ./
+# Copy the entire platform source code
+COPY . .
 
-# Install shared modules to local Maven cache
-RUN mvn install -pl hyperlocal-core,hyperlocal-common,hyperlocal-configuration,hyperlocal-integrations \
-    -am -DskipTests --no-transfer-progress
-
-# Copy the target service and build it
+# Build the targeted microservice module (Maven -am builds dependent modules automatically)
 ARG SERVICE_PATH
-COPY ${SERVICE_PATH}/ ./${SERVICE_PATH}/
 RUN mvn package -pl ${SERVICE_PATH} -am -DskipTests --no-transfer-progress
 
 # Stage 2: Minimal JRE runtime

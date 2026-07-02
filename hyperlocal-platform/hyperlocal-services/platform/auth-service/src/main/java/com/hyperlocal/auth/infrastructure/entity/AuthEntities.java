@@ -102,6 +102,9 @@ public class AuthEntities {
 
         @Column(nullable = false)
         private String result; // SUCCESS, FAILURE
+
+        @Column(name = "created_at", nullable = false)
+        private Instant createdAt = Instant.now();
     }
 
     @Getter

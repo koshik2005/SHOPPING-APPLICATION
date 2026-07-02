@@ -35,5 +35,24 @@
         <module>business/support-service</module>
         <module>business/reporting-service</module>
         <module>business/ai-service</module>
+        <module>business/delivery-service</module>
+        <module>business/branch-manager-service</module>
     </modules>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

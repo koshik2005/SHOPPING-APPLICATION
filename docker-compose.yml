@@ -70,7 +70,7 @@ services:
     image: postgis/postgis:15-3.3
     container_name: hyperlocal-postgres
     environment:
-      POSTGRES_DB: hyperlocal_db
+      POSTGRES_DB: hyperlocal_auth_db
       POSTGRES_USER: ${DB_USER:-hyperlocal_user}
       POSTGRES_PASSWORD: ${DB_PASS:-hyperlocal_secure_pass}
     ports:
@@ -80,7 +80,7 @@ services:
     networks:
       - hyperlocal-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hyperlocal_user} -d hyperlocal_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hyperlocal_user} -d hyperlocal_auth_db"]
       <<: *healthcheck-defaults
 
   redis:
@@ -103,11 +103,11 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+      RABBITMQ_ERLANG_COOKIE: "HyperLocalSecretRabbitMQCookie"
+      HOME: /tmp
     ports:
       - "5672:5672"
       - "15672:15672"
-    volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
     networks:
       - hyperlocal-network
     healthcheck:
