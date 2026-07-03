@@ -18,7 +18,7 @@ String get apiBaseUrl {
       return const String.fromEnvironment('API_BASE_URL', defaultValue: 'https://api.hyperlocal.app');
     case 'dev':
     default:
-      return const String.fromEnvironment('API_BASE_URL', defaultValue: 'http://127.0.0.1:8080');
+      return const String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.61.26.56:8080');
   }
 }
 
@@ -383,6 +383,8 @@ class BranchInfo {
   final bool isOpen;
   final double deliveryRadiusMiles;
   final String contactNumber;
+  final double latitude;
+  final double longitude;
 
   BranchInfo({
     required this.id,
@@ -392,6 +394,8 @@ class BranchInfo {
     required this.isOpen,
     required this.deliveryRadiusMiles,
     required this.contactNumber,
+    required this.latitude,
+    required this.longitude,
   });
 
   factory BranchInfo.fromJson(Map<String, dynamic> json) {
@@ -403,6 +407,8 @@ class BranchInfo {
       isOpen: json['isOpen'] ?? true,
       deliveryRadiusMiles: (json['deliveryRadiusMiles'] ?? 5.0).toDouble(),
       contactNumber: json['contactNumber'] ?? '',
+      latitude: (json['latitude'] ?? 37.7749).toDouble(),
+      longitude: (json['longitude'] ?? -122.4194).toDouble(),
     );
   }
 }
@@ -417,6 +423,8 @@ class BranchInfoNotifier extends StateNotifier<Map<String, BranchInfo>> {
       isOpen: true,
       deliveryRadiusMiles: 5.0,
       contactNumber: '+15551110001',
+      latitude: 37.7749,
+      longitude: -122.4194,
     ),
   });
 
@@ -867,7 +875,7 @@ final notificationsProvider = FutureProvider.autoDispose<List<NotificationItem>>
       NotificationItem(
         id: '2',
         title: 'Wallet Loaded',
-        body: 'Successfully credited $50.00 to your HyperWallet.',
+        body: 'Successfully credited \$50.00 to your HyperWallet.',
         timestamp: '1 hour ago',
       ),
     ];

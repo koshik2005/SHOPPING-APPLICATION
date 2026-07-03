@@ -1649,7 +1649,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             if (dir === 'E') partnerLng += delta;
             if (dir === 'W') partnerLng -= delta;
 
-            document.getElementById('coordsDisplay').innerText = `Latitude: ${partnerLat.toFixed(5)} | Longitude: ${partnerLng.toFixed(5)}`;
+            document.getElementById('coordsDisplay').innerText = `Latitude: $\{{partnerLat.toFixed(5)}} | Longitude: $\{{partnerLng.toFixed(5)}}`;
 
             await fetch('/api/delivery/update-location', {{
                 method: 'POST',
@@ -1677,7 +1677,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                 autoSimInterval = setInterval(() => {{
                     partnerLat += 0.0002;
                     partnerLng += 0.0003;
-                    document.getElementById('coordsDisplay').innerText = `Latitude: ${partnerLat.toFixed(5)} | Longitude: ${partnerLng.toFixed(5)}`;
+                    document.getElementById('coordsDisplay').innerText = `Latitude: $\{{partnerLat.toFixed(5)}} | Longitude: $\{{partnerLng.toFixed(5)}}`;
                     
                     fetch('/api/delivery/update-location', {{
                         method: 'POST',
