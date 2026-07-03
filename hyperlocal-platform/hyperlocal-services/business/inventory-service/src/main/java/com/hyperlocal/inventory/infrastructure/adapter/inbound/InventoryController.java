@@ -32,4 +32,16 @@ public class InventoryController {
         int stock = inventoryService.getAvailableStock(UUID.fromString(variantId));
         return ResponseEntity.ok(ApiResponse.ok(stock, UUID.randomUUID().toString()));
     }
+
+    @PostMapping("/categories")
+    public ResponseEntity<ApiResponse<CategoryDto>> createCategory(@RequestBody CategoryDto request) {
+        CategoryDto response = inventoryService.createCategory(request);
+        return ResponseEntity.ok(ApiResponse.ok(response, UUID.randomUUID().toString()));
+    }
+
+    @PostMapping("/products")
+    public ResponseEntity<ApiResponse<ProductDto>> createProduct(@RequestBody ProductDto request) {
+        ProductDto response = inventoryService.createProduct(request);
+        return ResponseEntity.ok(ApiResponse.ok(response, UUID.randomUUID().toString()));
+    }
 }

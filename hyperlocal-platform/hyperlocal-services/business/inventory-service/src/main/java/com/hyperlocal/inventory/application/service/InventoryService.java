@@ -49,4 +49,34 @@ public class InventoryService {
             .map(InventoryEntity::getAvailableQty)
             .orElse(0);
     }
+
+    @Transactional
+    public CategoryDto createCategory(CategoryDto request) {
+        CategoryEntity entity = new CategoryEntity();
+        entity.setName(request.getName());
+        entity.setIconUrl(request.getIconUrl());
+        CategoryEntity saved = categoryRepository.save(entity);
+        return CategoryDto.builder()
+            .id(saved.getId())
+            .name(saved.getName())
+            .iconUrl(saved.getIconUrl())
+            .build();
+    }
+
+    @Transactional
+    public ProductDto createProduct(ProductDto request) {
+        ProductEntity entity = new ProductEntity();
+        entity.setShopId(request.getShopId());
+        entity.setCategoryId(request.getCategoryId());
+        entity.setName(request.getName());
+        entity.setDescription(request.getDescription());
+        ProductEntity saved = productRepository.save(entity);
+        return ProductDto.builder()
+            .id(saved.getId())
+            .shopId(saved.getShopId())
+            .categoryId(saved.getCategoryId())
+            .name(saved.getName())
+            .description(saved.getDescription())
+            .build();
+    }
 }
