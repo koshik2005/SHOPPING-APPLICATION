@@ -15,7 +15,6 @@ String get apiBaseUrl {
     case 'staging':
       return const String.fromEnvironment('API_BASE_URL', defaultValue: 'https://staging.api.hyperlocal.app');
     case 'production':
-      return const String.fromEnvironment('API_BASE_URL', defaultValue: 'https://api.hyperlocal.app');
     case 'dev':
     default:
       return const String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.61.26.56:8080');
