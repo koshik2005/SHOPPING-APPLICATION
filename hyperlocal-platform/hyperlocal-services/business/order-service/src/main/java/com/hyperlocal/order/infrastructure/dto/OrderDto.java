@@ -10,6 +10,7 @@ public class OrderDto {
     private UUID id;
     private UUID customerId;
     private UUID branchId;
+    private String serviceKey;
     private String status;
     private double totalPrice;
 }

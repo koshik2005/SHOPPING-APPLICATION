@@ -32,6 +32,13 @@ public class InventoryService {
     private final InventoryRepository inventoryRepository;
     private final ProductAttributeSchemaRepository attributeSchemaRepository;
     private final ProductAttributeValueRepository attributeValueRepository;
+    private final RolePermissionMappingRepository rolePermissionMappingRepository;
+
+    private boolean checkPermission(AuthContext.AuthContextData ctx, String permission) {
+        if (ctx == null) return false;
+        if (ctx.isSuperAdmin()) return true;
+        return rolePermissionMappingRepository.hasPermission(ctx.roles(), permission);
+    }
 
     // ======================================================================
     // CATEGORIES
@@ -55,7 +62,7 @@ public class InventoryService {
     public CategoryDto createCategory(CategoryDto request) {
         // PERMISSION CHECK — no role name hardcoded
         AuthContext.AuthContextData ctx = AuthContext.get();
-        if (ctx == null || !ctx.hasPermission("categories:write")) {
+        if (!checkPermission(ctx, "categories:write")) {
             throw new RuntimeException("FORBIDDEN: You do not have permission to create categories");
         }
         CategoryEntity entity = new CategoryEntity();
@@ -74,7 +81,7 @@ public class InventoryService {
     public List<ProductDto> getProductsByShop(UUID shopId) {
         // PERMISSION CHECK — no role name hardcoded
         AuthContext.AuthContextData ctx = AuthContext.get();
-        if (ctx != null && !ctx.hasPermission("products:view") && !ctx.isSuperAdmin()) {
+        if (ctx != null && !checkPermission(ctx, "products:view")) {
             throw new RuntimeException("FORBIDDEN: Access denied to products");
         }
 
@@ -97,7 +104,7 @@ public class InventoryService {
         if (ctx == null) {
             throw new RuntimeException("UNAUTHORIZED: Authentication context is missing");
         }
-        if (!ctx.hasPermission("products:write") && !ctx.isSuperAdmin()) {
+        if (!checkPermission(ctx, "products:write")) {
             throw new RuntimeException("FORBIDDEN: You do not have permission to create products");
         }
 
@@ -120,7 +127,7 @@ public class InventoryService {
     @Transactional
     public ProductDto updateProduct(UUID productId, ProductDto request) {
         AuthContext.AuthContextData ctx = AuthContext.get();
-        if (ctx == null || (!ctx.hasPermission("products:write") && !ctx.isSuperAdmin())) {
+        if (!checkPermission(ctx, "products:write")) {
             throw new RuntimeException("FORBIDDEN: You do not have permission to update products");
         }
         ProductEntity entity = productRepository.findById(productId)
