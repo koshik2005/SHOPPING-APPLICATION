@@ -1,0 +1,221 @@
+================================================================================
+          HYPERLOCAL ENTERPRISE PLATFORM — END-TO-END USER GUIDE v3.0
+================================================================================
+
+Welcome to the HyperLocal Enterprise Platform User Guide. This document provides 
+operational instructions and functional architectures for the Customer Mobile 
+Application (Flutter), Delivery Partner Application (Flutter), and the 
+Enterprise Web Portal (React).
+
+The HyperLocal Platform is fully dynamic, database-driven, and governed by a 
+strict Zero Trust Identity & Access Management (IAM) security model. There are 
+no hardcoded configurations, pricing, categories, routes, workflows, or menus 
+in the platform.
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1. Platform Overview & Target Audiences
+2. The Enterprise Web Portal
+   A. Access Control & Dynamic RBAC
+   B. Service Registry & Feature Flags
+   C. Product Schema & Attribute Builder
+   D. Workflow State Machine Designer
+   E. Pricing & Commissions Engine
+   F. Promotional Banner Manager
+   G. Localisation (i18n) Control
+   H. System & SMTP Parameters
+3. The Customer Mobile Application
+   A. Geo-Location & Automatic Branch Resolution
+   B. Dynamic Services & Catalog Browsing
+   C. Cart Management & Checkout
+   D. Live Delivery Tracking
+4. The Delivery Partner Mobile Application
+   A. Driver Onboarding & Contracts
+   B. Job Dispatching & Verification
+5. Security, Auditing & Troubleshooting
+
+================================================================================
+1. PLATFORM OVERVIEW & TARGET AUDIENCES
+================================================================================
+
+The platform connects local customers, brick-and-mortar merchants, delivery 
+agents, and regional branch operations into a unified hyper-local commerce loop:
+
+- Customers: Browse menus/items, order, make payments, and track riders.
+- Delivery Partners: Complete geofence-aware order pickup and drop-offs.
+- Merchants (Shop Owners/Managers): List products and fulfill orders.
+- Branch Managers: Supervise regional shops, riders, and pricing adjustments.
+- System/Super Admins: Audit workflows, toggle features, and map permissions.
+
+================================================================================
+2. THE ENTERPRISE WEB PORTAL
+================================================================================
+
+The Enterprise Web Portal (accessible at http://localhost:5173 or your deployed 
+domain) is the management console. The portal sidebar is fully server-driven: 
+links, sections, and icons update automatically based on permissions.
+
+----------------------------------
+A. ACCESS CONTROL & DYNAMIC RBAC
+----------------------------------
+Access is controlled via fine-grained permissions. Roles do not have hardcoded 
+rights. To configure access control:
+1. Go to "RBAC Settings".
+2. Under "Permission Definitions", declare the required actions (e.g. `products:write`, `payments:view`).
+3. Under "Role Mappings", bind these definitions to roles. The system supports 
+   multiple concurrent roles per user. 
+   - Note: Users assigned `ROLE_SUPER_ADMIN` automatically receive wildcard (*) 
+     bypasses.
+
+----------------------------------
+B. SERVICE REGISTRY & FEATURE FLAGS
+----------------------------------
+Services (like food delivery, grocery, pharmacy) can be enabled or disabled:
+1. Navigate to the "Service Registry" page.
+2. Toggle active switches to enable or disable services instantly. Disabling a 
+   service removes it from both the mobile app and portal views.
+3. Use the "Feature Flags" page to toggle experimental features (like MFA, 
+   automatic dispatching) dynamically at global or branch-specific scopes.
+
+----------------------------------
+C. PRODUCT SCHEMA & ATTRIBUTE BUILDER
+----------------------------------
+To support diverse service types, products use schemas instead of a fixed DB columns:
+1. Navigate to the "Product Schema Builder".
+2. Select a Service (e.g., "food").
+3. Define custom attribute schemas:
+   - Field Types supported: TEXT, NUMBER, DECIMAL, BOOLEAN, DROPDOWN, MULTISELECT.
+   - Define validation rules (required, min, max, patterns).
+   - Merchants will be presented with these fields when uploading products.
+
+----------------------------------
+D. WORKFLOW STATE MACHINE DESIGNER
+----------------------------------
+Order status lifecycles are entirely database-driven:
+1. Navigate to the "Workflow Designer" page.
+2. Select the service type (e.g., "medicine").
+3. View or configure steps:
+   - Define initial step (e.g., `PLACED`) and terminal step (e.g., `DELIVERED`).
+   - Define `allowedNextSteps` (e.g. `ACCEPTED` can only go to `PREPARING` or `CANCELLED`).
+   - Configure `allowedRoles` (e.g. only `ROLE_DELIVERY_PARTNER` can transition 
+     order to `ON_THE_WAY`).
+
+----------------------------------
+E. PRICING & COMMISSIONS ENGINE
+----------------------------------
+Prices and fees are calculated dynamically based on rules evaluated at checkout:
+1. Go to "Pricing Engine".
+2. Configure rules (e.g., `base_delivery_fee`, `delivery_fee_per_km`, `commission_rate`).
+3. Rules can be scoped:
+   - Global: Default pricing rules.
+   - Branch: Specific fees for a branch (e.g. dense metropolitan hubs).
+   - Service: Scoped to specific categories (e.g. courier rides vs food delivery).
+
+----------------------------------
+F. PROMOTIONAL BANNER MANAGER
+----------------------------------
+Banners displayed on the Flutter app home screen are managed here:
+1. Navigate to "Banner Manager".
+2. Click "Add Banner".
+3. Provide:
+   - Title & Subtitle.
+   - Action Route (deep-link tap target, e.g., `/shop/grocery`).
+   - Background Colors (comma-separated hex codes for smooth CSS/Flutter gradients).
+   - Display Order.
+   - Valid From and Valid To timestamps (for automated promotional scheduling).
+
+----------------------------------
+G. LOCALISATION (I18N) CONTROL
+----------------------------------
+Every string literal on the mobile application is translated dynamically:
+1. Navigate to "Localisation Manager".
+2. Select a target locale (en, hi, ta, te).
+3. Search for keys (e.g., `home.search.placeholder`) and edit values.
+4. Changes take effect on the mobile app upon home screen refresh.
+
+----------------------------------
+H. SYSTEM & SMTP PARAMETERS
+----------------------------------
+Use the "System Settings" page to modify system configurations like platform-wide 
+maintenance mode flags, base tax rates, SMTP hosts/ports, and session timeouts.
+
+================================================================================
+3. THE CUSTOMER MOBILE APPLICATION
+================================================================================
+
+The Customer App provides localized shopping, cart checkouts, and live tracking.
+
+---------------------------------------------
+A. GEO-LOCATION & AUTOMATIC BRANCH RESOLUTION
+---------------------------------------------
+1. Upon login, the app checks the user's current GPS coordinates.
+2. It queries the Location Intelligence Platform (LIP) geofence API.
+3. The server resolves the nearest active Branch Hub and checks if the coordinates 
+   lie within the branch's service zone.
+4. If the user moves out of bounds, the app displays a dynamic banner allowing 
+   manual branch selection.
+
+--------------------------------------
+B. DYNAMIC SERVICES & CATALOG BROWSING
+--------------------------------------
+1. The Home screen displays services (categories) loaded from the registry.
+2. Clicking a service key (e.g., food) opens the active shop catalog.
+3. The app loads shops in the user's active branch, displays menus, and filters 
+   out Unavailable products.
+
+--------------------------
+C. CART MANAGEMENT & CHECKOUT
+--------------------------
+1. Select items, select variants (e.g., Standard, Large), and click "Add".
+2. Open "My Cart" to view breakdown.
+3. Calculations (Tax, Delivery Fee, Platform Fee) are fetched in real-time.
+4. Complete checkout using Stripe or payment credentials. Users can load funds 
+   to their virtual Wallet for zero-click instant payments.
+
+------------------------
+D. LIVE DELIVERY TRACKING
+------------------------
+1. After checkout, users are redirected to the live tracking map.
+2. The screen connects to the Live Tracking API, rendering real-time rider 
+   lat/long coordinates, remaining distance, ETA, and speed.
+
+================================================================================
+4. THE DELIVERY PARTNER MOBILE APPLICATION
+================================================================================
+
+The Delivery App enables dispatch, geofencing, and delivery verifications.
+
+--------------------------------
+A. DRIVER ONBOARDING & CONTRACTS
+--------------------------------
+1. Drivers register, specify vehicle types, and complete background checks.
+2. Upon approval, they complete an E-sign contract via the screen.
+3. Once active, they toggle their status to "Available" to enter the queue.
+
+---------------------------------
+B. JOB DISPATCHING & VERIFICATION
+---------------------------------
+1. Orders marked `READY` by merchants are auto-dispatched to the nearest rider.
+2. Riders have 30 seconds to accept or decline the pickup card.
+3. Once accepted, riders navigate to the merchant store, pick up the parcel, 
+   and swipe to transition status to `ON_THE_WAY`.
+4. At delivery, the customer is asked for a 4-digit OTP code.
+5. The rider inputs the code into the app. Upon matching, status is updated 
+   to `DELIVERED`, and funds are credited to the rider's wallet.
+
+================================================================================
+5. SECURITY, AUDITING & TROUBLESHOOTING
+================================================================================
+
+- Multi-Tab Session Locking: The platform uses BroadcastChannel sync on web portal. 
+  Opening the console in another tab triggers session collision warnings and blocks 
+  concurrent access.
+- Tamper-Proof Audit Logging: All actions (user updates, status transitions, key rotations) 
+  are audited. View these records under "System Settings -> Audit Logs".
+- Session Expiry: Access tokens default to 15-minute expirations. Refresh tokens 
+  will transparently renew sessions unless a conflict is detected.
+
+================================================================================
+                    HYPERLOCAL PLATFORM SUPPORT & OPERATIONS
+================================================================================
