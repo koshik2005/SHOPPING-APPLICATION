@@ -82,6 +82,25 @@ def broadcast_event(event_type: str, action: str, payload: dict):
         for q in dead:
             _sse_subscribers.remove(q)
 
+def make_mock_jwt(user_id, email, role, roles, branch_id=None, shop_id=None):
+    import base64
+    header = {"alg": "RS256", "kid": "key-1"}
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "role": role,
+        "roles": roles,
+        "branchId": branch_id,
+        "shopId": shop_id,
+        "sessionId": str(uuid.uuid4())
+    }
+    
+    def b64url(d):
+        s = json.dumps(d).encode('utf-8')
+        return base64.urlsafe_b64encode(s).decode('utf-8').rstrip('=')
+        
+    return f"{b64url(header)}.{b64url(payload)}.mock_signature"
+
 class ApiHandler(http.server.BaseHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -524,11 +543,12 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                     is_admin = "admin" in email.lower()
                     user_role = "ROLE_SUPER_ADMIN" if is_admin else "ROLE_CUSTOMER"
                     user_roles = ["ROLE_SUPER_ADMIN"] if is_admin else ["ROLE_CUSTOMER"]
+                    mock_token = make_mock_jwt("87ef769c-d021-4f11-ba32-aafe812bb31c", email, user_role, user_roles)
                     mock_data = {
                         "status": "SUCCESS",
                         "data": {
                             "authenticationState": "LOGIN_COMPLETED",
-                            "accessToken": "mock_access_token_pass",
+                            "accessToken": mock_token,
                             "refreshToken": "mock_refresh_token_pass",
                             "expiresIn": 3600,
                             "user": {
@@ -549,11 +569,12 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                     is_admin = "admin" in email.lower()
                     user_role = "ROLE_SUPER_ADMIN" if is_admin else "ROLE_CUSTOMER"
                     user_roles = ["ROLE_SUPER_ADMIN"] if is_admin else ["ROLE_CUSTOMER"]
+                    mock_token = make_mock_jwt("87ef769c-d021-4f11-ba32-aafe812bb31c", email, user_role, user_roles)
                     mock_data = {
                         "status": "SUCCESS",
                         "data": {
                             "authenticationState": "LOGIN_COMPLETED",
-                            "accessToken": "mock_access_token_generic",
+                            "accessToken": mock_token,
                             "refreshToken": "mock_refresh_token_generic",
                             "expiresIn": 3600,
                             "user": {
