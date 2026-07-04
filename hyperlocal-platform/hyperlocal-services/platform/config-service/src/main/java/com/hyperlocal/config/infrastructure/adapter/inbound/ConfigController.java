@@ -256,6 +256,60 @@ public class ConfigController {
     }
 
     // ------------------------------------------------------------------
+    // PORTAL UI METADATA
+    // ------------------------------------------------------------------
+    @GetMapping("/portal-ui")
+    public ResponseEntity<Map<String, Object>> getPortalUiMetadata() {
+        Map<String, Object> data = new LinkedHashMap<>();
+        
+        List<Map<String, Object>> sections = new ArrayList<>();
+        Map<String, Object> dashboardSection = new LinkedHashMap<>();
+        dashboardSection.put("id", "sec-dashboard");
+        dashboardSection.put("title", "Dashboard Layout");
+        dashboardSection.put("layoutType", "GRID");
+        dashboardSection.put("columns", 12);
+        
+        List<Map<String, Object>> widgets = new ArrayList<>();
+        Map<String, Object> widgetRevenue = new LinkedHashMap<>();
+        widgetRevenue.put("id", "widget-revenue");
+        widgetRevenue.put("type", "METRIC_CARD");
+        widgetRevenue.put("title", "Total Revenue");
+        widgetRevenue.put("sourceApi", "/api/v1/analytics/revenue/summary");
+        widgetRevenue.put("color", "primary");
+        widgetRevenue.put("size", Map.of("xs", 12, "md", 4));
+        
+        Map<String, Object> widgetChart = new LinkedHashMap<>();
+        widgetChart.put("id", "widget-order-chart");
+        widgetChart.put("type", "CHART_LINE");
+        widgetChart.put("title", "Order Fulfillments");
+        widgetChart.put("sourceApi", "/api/v1/analytics/orders/trend");
+        widgetChart.put("size", Map.of("xs", 12, "md", 8));
+        
+        widgets.add(widgetRevenue);
+        widgets.add(widgetChart);
+        dashboardSection.put("widgets", widgets);
+        sections.add(dashboardSection);
+        
+        data.put("sections", sections);
+        
+        Map<String, Object> forms = new LinkedHashMap<>();
+        Map<String, Object> productCreateForm = new LinkedHashMap<>();
+        productCreateForm.put("title", "Add Product");
+        productCreateForm.put("actionUrl", "/api/v1/inventory/products");
+        productCreateForm.put("method", "POST");
+        
+        List<Map<String, Object>> fields = new ArrayList<>();
+        fields.add(Map.of("name", "name", "label", "Product Title", "type", "TEXT", "required", true, "validation", "^[A-Za-z0-9 ]{3,100}$"));
+        fields.add(Map.of("name", "serviceKey", "label", "Service Category", "type", "SELECT", "sourceApi", "/api/v1/config/services/keys", "required", true));
+        
+        productCreateForm.put("fields", fields);
+        forms.put("product_create", productCreateForm);
+        data.put("forms", forms);
+        
+        return ok(data);
+    }
+
+    // ------------------------------------------------------------------
     // HELPER
     // ------------------------------------------------------------------
     private ResponseEntity<Map<String, Object>> ok(Map<String, Object> data) {

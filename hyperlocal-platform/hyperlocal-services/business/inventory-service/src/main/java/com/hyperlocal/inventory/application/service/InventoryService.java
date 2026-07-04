@@ -69,6 +69,7 @@ public class InventoryService {
         entity.setName(request.getName());
         entity.setIconUrl(request.getIconUrl());
         entity.setServiceKey(request.getServiceKey());
+        entity.setParentCategoryId(request.getParentCategoryId());
         CategoryEntity saved = categoryRepository.save(entity);
         return toCategoryDto(saved);
     }
@@ -196,6 +197,7 @@ public class InventoryService {
             .name(cat.getName())
             .iconUrl(cat.getIconUrl())
             .serviceKey(cat.getServiceKey())
+            .parentCategoryId(cat.getParentCategoryId())
             .displayOrder(cat.getDisplayOrder())
             .colorHex(cat.getColorHex())
             .active(cat.isActive())

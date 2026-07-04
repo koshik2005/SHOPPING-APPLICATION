@@ -7,11 +7,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * Dynamic Service Registry — replaces ALL hardcoded service lists
- * in Flutter home screen and Enterprise Portal.
- *
- * Adding "Hotel Booking" to this table is the ONLY change needed
- * for it to appear in every client app.
+ * Dynamic Service Registry v2 — replaces ALL hardcoded service lists.
  */
 @Getter
 @Setter
@@ -23,41 +19,80 @@ public class ServiceRegistryEntity {
     @GeneratedValue(strategy = GenerationType.AUTO)
     private UUID id;
 
-    /** Unique machine-readable key (e.g., "food", "rides", "hotel_booking") */
     @Column(name = "service_key", nullable = false, unique = true, length = 80)
     private String serviceKey;
 
-    /** Human-readable display name (e.g., "Restaurant", "Ride Booking") */
     @Column(name = "display_name", nullable = false, length = 150)
     private String displayName;
 
-    /** Icon identifier: Material icon name, emoji, or remote URL */
+    @Column(name = "description")
+    private String description;
+
     @Column(name = "icon_url")
     private String iconUrl;
 
-    /** Primary color hex code for theming (e.g., "#FF6D00") */
     @Column(name = "color_hex", length = 10)
     private String colorHex;
 
-    /** App deep-link route (e.g., "/shop/food", "/rides") */
     @Column(name = "route_path", length = 255)
     private String routePath;
 
-    /** Global on/off switch for this service */
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 
-    /** Rendering order in the Flutter home grid */
     @Column(name = "display_order", nullable = false)
     private int displayOrder = 0;
 
-    /** Linked feature flag key for branch-level overrides */
     @Column(name = "feature_flag_key", length = 100)
     private String featureFlagKey;
 
-    /** JSON blob for arbitrary extensible metadata */
     @Column(columnDefinition = "jsonb")
     private String metadata = "{}";
+
+    @Column(name = "theme_config", columnDefinition = "jsonb")
+    private String themeConfig = "{}";
+
+    @Column(name = "priority")
+    private Integer priority = 1;
+
+    @Column(name = "maintenance_mode")
+    private boolean maintenanceMode = false;
+
+    @Column(name = "supported_countries", columnDefinition = "jsonb")
+    private String supportedCountries = "[]";
+
+    @Column(name = "supported_cities", columnDefinition = "jsonb")
+    private String supportedCities = "[]";
+
+    @Column(name = "supported_vehicle_types", columnDefinition = "jsonb")
+    private String supportedVehicleTypes = "[]";
+
+    @Column(name = "supported_delivery_types", columnDefinition = "jsonb")
+    private String supportedDeliveryTypes = "[]";
+
+    @Column(name = "supported_product_schemas", columnDefinition = "jsonb")
+    private String supportedProductSchemas = "[]";
+
+    @Column(name = "supported_payment_methods", columnDefinition = "jsonb")
+    private String supportedPaymentMethods = "[]";
+
+    @Column(name = "supported_roles", columnDefinition = "jsonb")
+    private String supportedRoles = "[]";
+
+    @Column(name = "api_gateway_route")
+    private String apiGatewayRoute;
+
+    @Column(name = "microservice_name")
+    private String microserviceName;
+
+    @Column(name = "audit_enabled")
+    private boolean auditEnabled = true;
+
+    @Column(name = "security_level")
+    private Integer securityLevel = 1;
+
+    @Column(name = "version")
+    private Integer version = 1;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
