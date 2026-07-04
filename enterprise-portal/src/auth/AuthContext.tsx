@@ -1,6 +1,8 @@
 // @ts-nocheck
-import React, { createContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import client from '../api/client';
+import { clearPermissionsCache } from '../hooks/usePermissions';
+import { clearNavCache } from '../hooks/useNavigationMenu';
 
 export interface User {
   id: string;
@@ -19,6 +21,7 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  permissions: Set<string>;
   login: (email: string, passOrOtp: string, method: 'password' | 'otp') => Promise<any>;
   loginWithGoogle: (idToken: string) => Promise<any>;
   logout: () => Promise<void>;
@@ -28,59 +31,59 @@ interface AuthContextType {
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Define UI Permission Matrix matching backend
-const ROLE_PERMISSIONS: Record<string, string[]> = {
-  ROLE_SUPER_ADMIN: ['*'],
-  ROLE_SYSTEM_ADMIN: [
-    'dashboard:view', 'branches:view', 'branches:write', 'shops:view', 'shops:write',
-    'products:view', 'products:write', 'categories:view', 'categories:write', 'orders:view',
-    'orders:write', 'customers:view', 'customers:write', 'delivery:view', 'inventory:view',
-    'payments:view', 'wallet:view', 'reports:view', 'analytics:view', 'notifications:view',
-    'users:view', 'users:write', 'audit-logs:view', 'system-settings:view', 'system-settings:write'
-  ],
-  ROLE_BRANCH_MANAGER: [
-    'dashboard:view', 'branches:view', 'shops:view', 'shops:write', 'products:view',
-    'products:write', 'orders:view', 'orders:write', 'delivery:view', 'inventory:view',
-    'reports:view', 'analytics:view', 'notifications:view'
-  ],
-  ROLE_SHOP_OWNER: [
-    'dashboard:view', 'shops:view', 'products:view', 'products:write', 'orders:view',
-    'orders:write', 'inventory:view', 'reports:view'
-  ],
-  ROLE_SHOP_MANAGER: [
-    'dashboard:view', 'shops:view', 'products:view', 'orders:view', 'orders:write', 'inventory:view'
-  ],
-  ROLE_QA_ENGINEER: [
-    'dashboard:view', 'branches:view', 'shops:view', 'products:view', 'orders:view',
-    'customers:view', 'delivery:view', 'payments:view', 'wallet:view', 'reports:view',
-    'audit-logs:view', 'testing-tools:view'
-  ],
-  ROLE_SUPPORT_AGENT: [
-    'dashboard:view', 'branches:view', 'shops:view', 'products:view', 'orders:view',
-    'orders:write', 'customers:view', 'customers:write', 'wallet:view', 'payments:view'
-  ],
-  ROLE_FINANCE: [
-    'dashboard:view', 'orders:view', 'payments:view', 'payments:write', 'wallet:view',
-    'wallet:write', 'reports:view', 'analytics:view'
-  ],
-  ROLE_AUDITOR: [
-    'dashboard:view', 'branches:view', 'shops:view', 'products:view', 'orders:view',
-    'customers:view', 'delivery:view', 'payments:view', 'wallet:view', 'reports:view',
-    'audit-logs:view'
-  ]
-};
+/**
+ * DYNAMIC RBAC — permissions are loaded from the backend API.
+ * The hardcoded ROLE_PERMISSIONS map has been REMOVED.
+ * All permissions now live in the database (role_permission_mappings table)
+ * and are fetched from GET /api/v1/auth/rbac/permissions/multi
+ */
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Dynamic permissions — loaded from backend RBAC API after login
+  const [permissions, setPermissions] = useState<Set<string>>(new Set());
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
     const token = localStorage.getItem('accessToken');
     if (storedUser && token) {
-      setUser(JSON.parse(storedUser));
+      const parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser);
+      // Restore permissions from cache or re-fetch
+      loadPermissionsForUser(parsedUser);
+    } else {
+      setIsLoading(false);
     }
-    setIsLoading(false);
+  }, []);
+
+  const loadPermissionsForUser = useCallback(async (u: User) => {
+    if (!u || !u.roles || u.roles.length === 0) {
+      setPermissions(new Set());
+      setPermissionsLoaded(true);
+      setIsLoading(false);
+      return;
+    }
+    if (u.roles.includes('ROLE_SUPER_ADMIN')) {
+      setPermissions(new Set(['*']));
+      setPermissionsLoaded(true);
+      setIsLoading(false);
+      return;
+    }
+    try {
+      const res = await client.get('/api/v1/auth/rbac/permissions/multi', {
+        params: { roles: u.roles.join(',') },
+      });
+      const permsArray: string[] = res.data?.data?.permissions || [];
+      setPermissions(new Set(permsArray));
+    } catch (e) {
+      console.warn('[AuthContext] RBAC permission load failed — no permissions granted:', e);
+      setPermissions(new Set()); // Fail-secure
+    } finally {
+      setPermissionsLoaded(true);
+      setIsLoading(false);
+    }
   }, []);
 
   const login = async (email: string, passOrOtp: string, method: 'password' | 'otp', takeover = false) => {
@@ -140,6 +143,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       localStorage.clear();
       setUser(null);
+      setPermissions(new Set());
+      setPermissionsLoaded(false);
+      clearPermissionsCache();  // Clear RBAC cache
+      clearNavCache();           // Clear navigation cache
       setIsLoading(false);
       window.location.href = '/login';
     }
@@ -167,6 +174,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('sessionId', claims.sessionId);
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
+    // Load permissions from backend RBAC after successful login
+    loadPermissionsForUser(userData);
   };
 
   const hasRole = (roles: string[]) => {
@@ -174,27 +183,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return user.roles.some(r => roles.includes(r));
   };
 
-  const can = (permission: string) => {
+  const can = useCallback((permission: string): boolean => {
     if (!user) return false;
-    // Super admin matches all permissions
+    // ROLE_SUPER_ADMIN wildcard
     if (user.roles.includes('ROLE_SUPER_ADMIN')) return true;
-
-    for (const role of user.roles) {
-      const perms = ROLE_PERMISSIONS[role];
-      if (perms) {
-        if (perms.includes('*') || perms.includes(permission)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  };
+    // Check backend-loaded permission set (dynamic, from DB)
+    if (permissions.has('*')) return true;
+    return permissions.has(permission);
+  }, [user, permissions]);
 
   return (
     <AuthContext.Provider value={{
       user,
       isAuthenticated: !!user,
-      isLoading,
+      isLoading: isLoading || (!!user && !permissionsLoaded),
+      permissions,
       login,
       loginWithGoogle,
       logout,

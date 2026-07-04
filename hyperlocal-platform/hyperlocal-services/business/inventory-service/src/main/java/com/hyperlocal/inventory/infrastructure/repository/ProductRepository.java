@@ -9,4 +9,6 @@ import java.util.UUID;
 @Repository
 public interface ProductRepository extends JpaRepository<ProductEntity, UUID> {
     List<ProductEntity> findByShopIdAndDeletedFalse(UUID shopId);
+    List<ProductEntity> findByShopIdAndServiceKeyAndDeletedFalse(UUID shopId, String serviceKey);
+    List<ProductEntity> findByShopIdAndActiveTrueAndDeletedFalse(UUID shopId);
 }

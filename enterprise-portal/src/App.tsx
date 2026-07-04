@@ -21,6 +21,15 @@ import SystemConfig from './pages/SystemConfig';
 import SystemMonitor from './pages/SystemMonitor';
 import SecurityCenter from './pages/SecurityCenter';
 
+// Dynamic config admin pages
+import ServiceRegistry from './pages/ServiceRegistry';
+import FeatureFlags from './pages/FeatureFlags';
+import PricingEngine from './pages/PricingEngine';
+import BannerManager from './pages/BannerManager';
+import LocalisationManager from './pages/LocalisationManager';
+import WorkflowDesigner from './pages/WorkflowDesigner';
+import DynamicFormBuilder from './pages/DynamicFormBuilder';
+
 // Legacy Simulator Pages for fallback / simulation actions
 import Shops from './pages/testing-simulator/Shops';
 import Products from './pages/testing-simulator/Products';
@@ -206,6 +215,64 @@ export default function App() {
                   element={
                     <ProtectedRoute requirePermission="customers:view">
                       <SupportCenter />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Dynamic Configuration Admin Routes */}
+                <Route
+                  path="service-registry"
+                  element={
+                    <ProtectedRoute requirePermission="service-registry:view">
+                      <ServiceRegistry />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="feature-flags"
+                  element={
+                    <ProtectedRoute requirePermission="feature-flags:view">
+                      <FeatureFlags />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="pricing"
+                  element={
+                    <ProtectedRoute requirePermission="pricing:view">
+                      <PricingEngine />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="banners"
+                  element={
+                    <ProtectedRoute requirePermission="banners:view">
+                      <BannerManager />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="localisation"
+                  element={
+                    <ProtectedRoute requirePermission="localisation:view">
+                      <LocalisationManager />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="workflow"
+                  element={
+                    <ProtectedRoute requirePermission="workflow:view">
+                      <WorkflowDesigner />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="form-builder"
+                  element={
+                    <ProtectedRoute requirePermission="products:write">
+                      <DynamicFormBuilder />
                     </ProtectedRoute>
                   }
                 />

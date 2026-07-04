@@ -94,6 +94,10 @@ final deliveryRepositoryProvider = Provider<DeliveryRepository>((ref) {
   return DeliveryRepository(ref.watch(apiClientProvider));
 });
 
+final configRepositoryProvider = Provider<ConfigRepository>((ref) {
+  return ConfigRepository(ref.watch(apiClientProvider));
+});
+
 // --------------------------------------------------------------------------
 // 1. App Configuration & Remote Config Model
 // --------------------------------------------------------------------------
@@ -135,63 +139,69 @@ class AppConfig {
   });
 
   factory AppConfig.fromJson(Map<String, dynamic> json) {
+    // Map from system_configuration key-values directly
+    final rawMaintenance = json['platform.maintenance_mode'] ?? 'false';
+    final rawOtpLength = json['platform.otp.length'] ?? '6';
+    final rawOtpExpiry = json['platform.otp.expiry_seconds'] ?? '120';
+    final rawTimeout = json['platform.session.timeout'] ?? '3600';
+    final rawLockout = json['platform.login.max_attempts'] ?? '5';
+    final rawTax = json['platform.tax.gst_rate'] ?? '18.0';
+
     return AppConfig(
-      maintenanceMode: json['maintenanceMode'] ?? false,
-      appVersion: json['appVersion'] ?? '2.4.12',
-      forceUpdateRequired: json['forceUpdateRequired'] ?? false,
-      apiVersion: json['apiVersion'] ?? 'v1.4',
-      otpLength: json['otpLength'] ?? 6,
-      otpExpirySeconds: json['otpExpirySeconds'] ?? 60,
-      enabledLoginMethods: List<String>.from(json['enabledLoginMethods'] ?? ['phone', 'google', 'apple']),
-      passwordPolicyRegex: json['passwordPolicyRegex'] ?? "^(?=.*[A-Za-z])(?=.*\\d)[A-Za-z\\d]{8,}\$",
-      sessionTimeoutSeconds: json['sessionTimeoutSeconds'] ?? 3600,
-      maxLoginAttempts: json['maxLoginAttempts'] ?? 5,
-      baseDeliveryFee: (json['baseDeliveryFee'] ?? 2.50).toDouble(),
-      deliveryFeePerMile: (json['deliveryFeePerMile'] ?? 0.75).toDouble(),
-      platformFee: (json['platformFee'] ?? 0.50).toDouble(),
-      taxRate: (json['taxRate'] ?? 0.08).toDouble(),
-      termsUrl: json['termsUrl'] ?? '',
-      privacyUrl: json['privacyUrl'] ?? '',
+      maintenanceMode: rawMaintenance.toString() == 'true',
+      appVersion: json['platform.version'] ?? '2.5.0',
+      forceUpdateRequired: false,
+      apiVersion: 'v1.4',
+      otpLength: int.tryParse(rawOtpLength.toString()) ?? 6,
+      otpExpirySeconds: int.tryParse(rawOtpExpiry.toString()) ?? 120,
+      enabledLoginMethods: ['phone', 'google'],
+      passwordPolicyRegex: "^(?=.*[A-Za-z])(?=.*\\d)[A-Za-z\\d]{8,}\$",
+      sessionTimeoutSeconds: int.tryParse(rawTimeout.toString()) ?? 3600,
+      maxLoginAttempts: int.tryParse(rawLockout.toString()) ?? 5,
+      baseDeliveryFee: 2.50, // These will be dynamically calculated per branch
+      deliveryFeePerMile: 0.50,
+      platformFee: 0.50,
+      taxRate: (double.tryParse(rawTax.toString()) ?? 18.0) / 100.0,
+      termsUrl: json['platform.terms_url'] ?? '',
+      privacyUrl: json['platform.privacy_url'] ?? '',
     );
   }
 }
 
 class AppConfigNotifier extends StateNotifier<AppConfig> {
-  final CustomerRepository _repository;
+  final ConfigRepository _repository;
   
   AppConfigNotifier(this._repository) : super(AppConfig(
     maintenanceMode: false,
-    appVersion: '2.4.12',
+    appVersion: '2.5.0',
     forceUpdateRequired: false,
     apiVersion: 'v1.4',
     otpLength: 6,
-    otpExpirySeconds: 60,
-    enabledLoginMethods: ['phone', 'google', 'apple'],
+    otpExpirySeconds: 120,
+    enabledLoginMethods: ['phone', 'google'],
     passwordPolicyRegex: r'^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$',
     sessionTimeoutSeconds: 3600,
     maxLoginAttempts: 5,
     baseDeliveryFee: 2.50,
-    deliveryFeePerMile: 0.75,
+    deliveryFeePerMile: 0.50,
     platformFee: 0.50,
-    taxRate: 0.08,
-    termsUrl: 'https://cdn.hyperlocal.app/legal/terms.html',
-    privacyUrl: 'https://cdn.hyperlocal.app/legal/privacy.html',
+    taxRate: 0.18,
+    termsUrl: '',
+    privacyUrl: '',
   )) {
     fetchConfig();
   }
 
   Future<void> fetchConfig() async {
     try {
-      final data = await _repository.bootstrapHome("87ef769c-d021-4f11-ba32-aafe812bb31c");
-      if (data.containsKey('appConfig')) {
-        state = AppConfig.fromJson(data['appConfig']);
-      }
+      final data = await _repository.getSystemConfig("PLATFORM_SETTINGS");
+      state = AppConfig.fromJson(data);
     } catch (_) {}
   }
 }
 
 final appConfigProvider = StateNotifierProvider<AppConfigNotifier, AppConfig>((ref) {
-  return AppConfigNotifier(ref.watch(customerRepositoryProvider));
+  return AppConfigNotifier(ref.watch(configRepositoryProvider));
 });
 
 // --------------------------------------------------------------------------
@@ -420,29 +430,42 @@ class BranchInfo {
 }
 
 class BranchInfoNotifier extends StateNotifier<Map<String, BranchInfo>> {
-  BranchInfoNotifier() : super({
-    'branch-a': BranchInfo(
-      id: 'branch-a',
-      name: 'Downtown Main Hub',
-      address: '100 Main St, San Francisco',
-      workingHours: '08:00 AM - 10:00 PM',
-      isOpen: true,
-      deliveryRadiusMiles: 5.0,
-      contactNumber: '+15551110001',
-      latitude: 37.7749,
-      longitude: -122.4194,
-    ),
-  });
+  final ApiClient _apiClient;
+  
+  BranchInfoNotifier(this._apiClient) : super({}) {
+    fetchBranches();
+  }
 
-  Future<void> fetchBranches() async {}
+  Future<void> fetchBranches() async {
+    try {
+      final res = await _apiClient.dio.get('/api/v1/branches/active');
+      final List<dynamic> list = res.data['data'] ?? [];
+      final Map<String, BranchInfo> map = {};
+      for (var item in list) {
+        final id = item['id'];
+        map[id] = BranchInfo(
+          id: id,
+          name: item['name'] ?? 'Branch Hub',
+          address: item['address'] ?? 'Active Hub',
+          workingHours: item['workingHours'] ?? '24 Hours',
+          isOpen: item['isActive'] ?? true,
+          deliveryRadiusMiles: (item['deliveryRadiusMiles'] ?? 5.0).toDouble(),
+          contactNumber: item['contactNumber'] ?? '',
+          latitude: (item['latitude'] ?? 37.7749).toDouble(),
+          longitude: (item['longitude'] ?? -122.4194).toDouble(),
+        );
+      }
+      state = map;
+    } catch (_) {}
+  }
 }
 
 final branchInfoListProvider = StateNotifierProvider<BranchInfoNotifier, Map<String, BranchInfo>>((ref) {
-  return BranchInfoNotifier();
+  return BranchInfoNotifier(ref.watch(apiClientProvider));
 });
 
 class SelectedBranchNotifier extends StateNotifier<String> {
-  SelectedBranchNotifier() : super('branch-a');
+  SelectedBranchNotifier() : super('');
   void selectBranch(String id) => state = id;
 }
 
@@ -484,13 +507,10 @@ class CategoryNotifier extends StateNotifier<List<CategoryItem>> {
         label: item['name'],
         iconUrl: item['iconUrl'] ?? 'category',
         isAvailable: true,
-        displayOrder: 1,
+        displayOrder: item['displayOrder'] ?? 1,
       )).toList();
     } catch (_) {
-      state = [
-        CategoryItem(id: 'food', label: 'Restaurant', iconUrl: 'restaurant', isAvailable: true, displayOrder: 1),
-        CategoryItem(id: 'grocery', label: 'Local Shop', iconUrl: 'local_grocery_store', isAvailable: true, displayOrder: 2),
-      ];
+      state = [];
     }
   }
 }
@@ -547,26 +567,37 @@ class ProductItem {
 }
 
 class ProductCatalogNotifier extends StateNotifier<List<ProductItem>> {
-  final InventoryRepository _repository;
+  final InventoryRepository _inventoryRepo;
+  final ShopRepository _shopRepo;
+  final String _branchId;
   
-  ProductCatalogNotifier(this._repository) : super([]) {
+  ProductCatalogNotifier(this._inventoryRepo, this._shopRepo, this._branchId) : super([]) {
     fetchProducts();
   }
 
   Future<void> fetchProducts() async {
+    if (_branchId.isEmpty) return;
     try {
-      final list = await _repository.getProducts("87ef769c-d021-4f11-ba32-aafe812bb31c");
-      state = list.map((json) => ProductItem.fromJson(json)).toList();
+      final shops = await _shopRepo.getShops(_branchId);
+      if (shops.isNotEmpty) {
+        final firstShopId = shops[0]['id'];
+        final list = await _inventoryRepo.getProducts(firstShopId);
+        state = list.map((json) => ProductItem.fromJson(json)).toList();
+      } else {
+        state = [];
+      }
     } catch (_) {
-      state = [
-        ProductItem(id: 'p1', categoryId: 'food', name: 'Chicken Rice', description: 'Savory chicken rice with egg', imageUrl: '', price: 12.0, discountPrice: 0.0, stockCount: 100, taxPercent: 0.05, weightGrams: 200.0, variants: ['Standard'], isAvailable: true),
-      ];
+      state = [];
     }
   }
 }
 
 final catalogProvider = StateNotifierProvider.family<ProductCatalogNotifier, List<ProductItem>, String>((ref, branchId) {
-  return ProductCatalogNotifier(ref.watch(inventoryRepositoryProvider));
+  return ProductCatalogNotifier(
+    ref.watch(inventoryRepositoryProvider),
+    ref.watch(shopRepositoryProvider),
+    branchId,
+  );
 });
 
 // --------------------------------------------------------------------------
@@ -600,47 +631,37 @@ class MerchantInfo {
 
 class MerchantListNotifier extends StateNotifier<List<MerchantInfo>> {
   final ShopRepository _repository;
+  final String _branchId;
   
-  MerchantListNotifier(this._repository) : super([]) {
+  MerchantListNotifier(this._repository, this._branchId) : super([]) {
     fetchShops();
   }
 
   Future<void> fetchShops() async {
+    if (_branchId.isEmpty) return;
     try {
-      final list = await _repository.getShops("branch-a");
+      final list = await _repository.getShops(_branchId);
       state = list.map((item) => MerchantInfo(
         id: item['id'],
         name: item['name'],
-        logoUrl: 'https://cdn.hyperlocal.app/shops/logos/green_market.png',
-        bannerUrl: 'https://cdn.hyperlocal.app/shops/banners/green_market.png',
-        rating: 4.8,
-        openingTime: '08:00 AM',
-        closingTime: '09:00 PM',
-        deliveryFee: 1.99,
-        minOrderValue: 10.00,
-        averagePrepTimeMinutes: 15,
+        logoUrl: item['logoUrl'] ?? 'https://cdn.hyperlocal.app/shops/logos/green_market.png',
+        bannerUrl: item['bannerUrl'] ?? 'https://cdn.hyperlocal.app/shops/banners/green_market.png',
+        rating: (item['rating'] ?? 4.8).toDouble(),
+        openingTime: item['openingTime'] ?? '08:00 AM',
+        closingTime: item['closingTime'] ?? '09:00 PM',
+        deliveryFee: (item['deliveryFee'] ?? 1.99).toDouble(),
+        minOrderValue: (item['minOrderValue'] ?? 10.00).toDouble(),
+        averagePrepTimeMinutes: item['avgPrepMinutes'] ?? 15,
       )).toList();
     } catch (_) {
-      state = [
-        MerchantInfo(
-          id: 'm1',
-          name: 'Dynamic Merchant Shop',
-          logoUrl: 'https://cdn.hyperlocal.app/shops/logos/green_market.png',
-          bannerUrl: 'https://cdn.hyperlocal.app/shops/banners/green_market.png',
-          rating: 4.8,
-          openingTime: '08:00 AM',
-          closingTime: '09:00 PM',
-          deliveryFee: 1.99,
-          minOrderValue: 10.00,
-          averagePrepTimeMinutes: 15,
-        ),
-      ];
+      state = [];
     }
   }
 }
 
 final merchantListProvider = StateNotifierProvider<MerchantListNotifier, List<MerchantInfo>>((ref) {
-  return MerchantListNotifier(ref.watch(shopRepositoryProvider));
+  final branchId = ref.watch(selectedBranchProvider);
+  return MerchantListNotifier(ref.watch(shopRepositoryProvider), branchId);
 });
 
 // --------------------------------------------------------------------------
@@ -887,4 +908,15 @@ final notificationsProvider = FutureProvider.autoDispose<List<NotificationItem>>
     ];
   }
 });
+
+final dynamicBannersProvider = FutureProvider.family<List<dynamic>, String>((ref, branchId) async {
+  final repo = ref.watch(configRepositoryProvider);
+  return repo.getBanners(branchId.isNotEmpty ? branchId : null);
+});
+
+final localisationProvider = FutureProvider.family<Map<String, dynamic>, String>((ref, locale) async {
+  final repo = ref.watch(configRepositoryProvider);
+  return repo.getLocalisation(locale);
+});
+
 

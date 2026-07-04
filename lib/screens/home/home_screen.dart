@@ -18,19 +18,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentBanner = 0;
   Timer? _bannerTimer;
 
-  final List<Map<String, dynamic>> _banners = [
-    {'title': '50% OFF', 'sub': 'On first grocery order today', 'colors': [Color(0xFFFF6D00), Color(0xFFE65100)], 'icon': Icons.shopping_basket},
-    {'title': 'FREE Delivery', 'sub': 'Orders above \u20b9299 this weekend', 'colors': [Color(0xFF006D5B), Color(0xFF00897B)], 'icon': Icons.delivery_dining},
-    {'title': 'Ride Now', 'sub': 'Flat fare for trips under 5 km', 'colors': [Color(0xFF5D2B0E), Color(0xFF8D4E2E)], 'icon': Icons.directions_car},
-  ];
-
   @override
   void initState() {
     super.initState();
     _bannerTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (_bannerController.hasClients && mounted) {
-        final next = (_currentBanner + 1) % _banners.length;
-        _bannerController.animateToPage(next, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut);
+        final currentBranchKey = ref.read(selectedBranchProvider);
+        final bannersLength = ref.read(dynamicBannersProvider(currentBranchKey)).value?.length ?? 0;
+        if (bannersLength > 0) {
+          final next = (_currentBanner + 1) % bannersLength;
+          _bannerController.animateToPage(next, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut);
+        }
       }
     });
   }
@@ -51,6 +49,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final merchants = ref.watch(merchantListProvider);
     final user = ref.watch(userProfileProvider);
     final categories = ref.watch(categoriesProvider(currentBranchKey));
+    final localisationAsync = ref.watch(localisationProvider('en'));
+    final i18n = localisationAsync.value ?? {};
+    final String searchPlaceholder = i18n['home.search.placeholder'] ?? 'Search food, groceries, items...';
 
     if (activeBranch == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -121,7 +122,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     child: Row(children: [
                       const Icon(Icons.search),
                       const SizedBox(width: 8),
-                      Text('Search food, groceries, items...', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                      Text(searchPlaceholder, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                       const Spacer(),
                       Icon(Icons.mic, color: theme.colorScheme.onSurfaceVariant),
                     ]),
@@ -129,53 +130,80 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
 
-              // Auto-scrolling banner carousel
-              SizedBox(
-                height: 148,
-                child: PageView.builder(
-                  controller: _bannerController,
-                  onPageChanged: (i) => setState(() => _currentBanner = i),
-                  itemCount: _banners.length,
-                  itemBuilder: (context, index) {
-                    final b = _banners[index];
-                    return Padding(
-                      padding: EdgeInsets.only(left: index == 0 ? 16 : 8, right: index == _banners.length - 1 ? 16 : 8),
-                      child: Container(
-                        decoration: BoxDecoration(gradient: LinearGradient(colors: b['colors'] as List<Color>), borderRadius: BorderRadius.circular(16)),
-                        padding: const EdgeInsets.all(20),
-                        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                          Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-                            Text(b['title'] as String, style: theme.textTheme.headlineSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            Text(b['sub'] as String, style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70)),
-                          ]),
-                          Icon(b['icon'] as IconData, size: 52, color: Colors.white24),
-                        ]),
+              // Auto-scrolling dynamic banner carousel
+              ref.watch(dynamicBannersProvider(currentBranchKey)).when(
+                data: (bannersList) {
+                  if (bannersList.isEmpty) return const SizedBox.shrink();
+                  return Column(
+                    children: [
+                      SizedBox(
+                        height: 148,
+                        child: PageView.builder(
+                          controller: _bannerController,
+                          onPageChanged: (i) => setState(() => _currentBanner = i),
+                          itemCount: bannersList.length,
+                          itemBuilder: (context, index) {
+                            final b = bannersList[index];
+                            final title = b['title'] ?? '';
+                            final subtitle = b['subtitle'] ?? '';
+                            final actionRoute = b['actionRoute'] ?? '';
+                            final List<dynamic> rawColors = b['backgroundColors'] ?? [];
+                            final colors = rawColors.map((hex) => Color(int.parse(hex.replaceFirst('#', '0xFF')))).toList();
+                            if (colors.isEmpty) colors.addAll([const Color(0xFF1565C0), const Color(0xFF0D47A1)]);
+
+                            return Padding(
+                              padding: EdgeInsets.only(left: index == 0 ? 16 : 8, right: index == bannersList.length - 1 ? 16 : 8),
+                              child: GestureDetector(
+                                onTap: () {
+                                  if (actionRoute.isNotEmpty) {
+                                    context.push(actionRoute);
+                                  }
+                                },
+                                child: Container(
+                                  decoration: BoxDecoration(gradient: LinearGradient(colors: colors), borderRadius: BorderRadius.circular(16)),
+                                  padding: const EdgeInsets.all(20),
+                                  child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                                    Expanded(
+                                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+                                        Text(title, style: theme.textTheme.headlineSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                        const SizedBox(height: 4),
+                                        Text(subtitle, style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                      ]),
+                                    ),
+                                    const Icon(Icons.local_mall, size: 52, color: Colors.white24),
+                                  ]),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                    );
-                  },
-                ),
-              ),
-              // Dot indicators
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(_banners.length, (i) => AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
-                    width: _currentBanner == i ? 20 : 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: _currentBanner == i ? theme.colorScheme.primary : theme.colorScheme.outlineVariant,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  )),
-                ),
+                      // Dot indicators
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(bannersList.length, (i) => AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            width: _currentBanner == i ? 20 : 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: _currentBanner == i ? theme.colorScheme.primary : theme.colorScheme.outlineVariant,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          )),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+                loading: () => const SizedBox(height: 148, child: Center(child: CircularProgressIndicator())),
+                error: (err, stack) => const SizedBox.shrink(),
               ),
 
               // Services Grid
-              Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 8), child: Text('Explore Services', style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.secondary))),
+              Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 8), child: Text(i18n['home.section.explore_services'] ?? 'Explore Services', style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.secondary))),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: categories.isEmpty
@@ -216,7 +244,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const SizedBox(height: 24),
 
               // Popular Near You
-              Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: Text('Popular Near You', style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.secondary))),
+              Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: Text(i18n['home.section.popular_near_you'] ?? 'Popular Near You', style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.secondary))),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: ListView.builder(
@@ -247,10 +275,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   String _getGreeting() {
+    final localisationAsync = ref.read(localisationProvider('en'));
+    final i18n = localisationAsync.value ?? {};
     final h = DateTime.now().hour;
-    if (h < 12) return 'Good morning';
-    if (h < 17) return 'Good afternoon';
-    return 'Good evening';
+    if (h < 12) return i18n['home.greeting.morning'] ?? 'Good morning';
+    if (h < 17) return i18n['home.greeting.afternoon'] ?? 'Good afternoon';
+    return i18n['home.greeting.evening'] ?? 'Good evening';
   }
 
   void _showBranchSelector(BuildContext context, WidgetRef ref) {

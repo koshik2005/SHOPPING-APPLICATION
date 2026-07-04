@@ -9,4 +9,6 @@ import java.util.UUID;
 @Repository
 public interface CategoryRepository extends JpaRepository<CategoryEntity, UUID> {
     List<CategoryEntity> findByDeletedFalse();
+    List<CategoryEntity> findByServiceKeyAndDeletedFalseOrderByDisplayOrderAsc(String serviceKey);
+    List<CategoryEntity> findByActiveTrueAndDeletedFalseOrderByDisplayOrderAsc();
 }

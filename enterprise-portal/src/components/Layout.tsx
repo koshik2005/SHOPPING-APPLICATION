@@ -2,65 +2,93 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
+import { useNavigationMenu } from '../hooks/useNavigationMenu';
 import {
   Box, Drawer, AppBar, Toolbar, List, Typography, Divider, IconButton,
-  ListItem, ListItemButton, ListItemIcon, ListItemText, Avatar, Menu, MenuItem
+  ListItem, ListItemButton, ListItemIcon, ListItemText, Avatar, Menu,
+  MenuItem, CircularProgress, Tooltip
 } from '@mui/material';
 import {
-  Menu as MenuIcon, Dashboard as DashboardIcon, Room as RoomIcon,
-  Store as StoreIcon, Inventory as InventoryIcon, ShoppingCart as ShoppingCartIcon,
-  People as PeopleIcon, LocalShipping as LocalShippingIcon, AccountBalanceWallet as WalletIcon,
-  ReceiptLong as ReceiptIcon, Notifications as NotificationsIcon, AdminPanelSettings as AdminIcon,
-  Security as SecurityIcon, Settings as SettingsIcon, BugReport as BugIcon,
-  Assessment as AssessmentIcon, Help as HelpIcon, ExitToApp as LogoutIcon
+  Menu as MenuIcon, ExitToApp as LogoutIcon,
+  // Icon registry — maps iconKey strings from DB to MUI icon components
+  Dashboard, Room, Store, Inventory, ShoppingCart, People, LocalShipping,
+  AccountBalanceWallet, ReceiptLong, Notifications, AdminPanelSettings,
+  Security, Settings, BugReport, Assessment, Help, ManageSearch,
+  AppRegistration, ToggleOn, PriceChange, AccountTree, Image, Translate,
+  Shield, DynamicForm
 } from '@mui/icons-material';
 
 const drawerWidth = 260;
 
+/**
+ * Icon Registry — maps iconKey strings from navigation_menus DB table
+ * to MUI icon components. The content (which icons exist) is configured
+ * in the DB; this file only provides the mapping adapter.
+ *
+ * NEW ICONS: Add the MUI import above and the mapping entry below.
+ */
+const ICON_REGISTRY: Record<string, React.ReactElement> = {
+  Dashboard:             <Dashboard />,
+  Room:                  <Room />,
+  Store:                 <Store />,
+  Inventory:             <Inventory />,
+  ShoppingCart:          <ShoppingCart />,
+  People:                <People />,
+  LocalShipping:         <LocalShipping />,
+  AccountBalanceWallet:  <AccountBalanceWallet />,
+  ReceiptLong:           <ReceiptLong />,
+  Notifications:         <Notifications />,
+  AdminPanelSettings:    <AdminPanelSettings />,
+  Security:              <Security />,
+  Settings:              <Settings />,
+  BugReport:             <BugReport />,
+  Assessment:            <Assessment />,
+  Help:                  <Help />,
+  ManageSearch:          <ManageSearch />,
+  AppRegistration:       <AppRegistration />,
+  ToggleOn:              <ToggleOn />,
+  PriceChange:           <PriceChange />,
+  AccountTree:           <AccountTree />,
+  Image:                 <Image />,
+  Translate:             <Translate />,
+  Shield:                <Shield />,
+  DynamicForm:           <DynamicForm />,
+};
+
+function resolveIcon(iconKey: string): React.ReactElement {
+  return ICON_REGISTRY[iconKey] || <Dashboard />;
+}
+
 export function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
+  // ─── Dynamic Navigation from backend API ──────────────────────────────────
+  const { navItems, isLoaded: navLoaded } = useNavigationMenu('ENTERPRISE');
+
+  // Filter items by permission AND group by section
+  const permittedItems = navItems.filter(item =>
+    !item.permissionKey || can(item.permissionKey)
+  );
+
+  // Group by sectionLabel for sidebar section dividers
+  const sections: Record<string, NavMenuItem[]> = {};
+  permittedItems.forEach(item => {
+    const section = item.sectionLabel || 'OTHER';
+    if (!sections[section]) sections[section] = [];
+    sections[section].push(item);
+  });
+
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
   };
-
-  const handleClose = () => {
-    setAnchorEl(null);
-  };
-
+  const handleClose = () => setAnchorEl(null);
   const handleLogoutClick = async () => {
     handleClose();
     await logout();
   };
-
-  const SIDEBAR_ITEMS = [
-    { text: 'Dashboard', icon: <DashboardIcon />, path: '/', permission: 'dashboard:view' },
-    { text: 'Branches', icon: <RoomIcon />, path: '/branches', permission: 'branches:view' },
-    { text: 'Shops', icon: <StoreIcon />, path: '/shops', permission: 'shops:view' },
-    { text: 'Products', icon: <InventoryIcon />, path: '/products', permission: 'products:view' },
-    { text: 'Inventory', icon: <AssessmentIcon />, path: '/inventory', permission: 'inventory:view' },
-    { text: 'Orders', icon: <ShoppingCartIcon />, path: '/orders', permission: 'orders:view' },
-    { text: 'Delivery tracking', icon: <LocalShippingIcon />, path: '/delivery', permission: 'delivery:view' },
-    { text: 'Payments', icon: <ReceiptIcon />, path: '/payments', permission: 'payments:view' },
-    { text: 'Wallet ledger', icon: <WalletIcon />, path: '/wallet', permission: 'wallet:view' },
-    { text: 'Customers', icon: <PeopleIcon />, path: '/customers', permission: 'customers:view' },
-    { text: 'Notifications', icon: <NotificationsIcon />, path: '/notifications', permission: 'notifications:view' },
-    { text: 'User management', icon: <AdminIcon />, path: '/users', permission: 'users:view' },
-    { text: 'RBAC Settings', icon: <SecurityIcon />, path: '/rbac', permission: 'users:view' },
-    { text: 'Security Center', icon: <AdminIcon />, path: '/security-center', permission: 'users:view' },
-    { text: 'Resolution Center', icon: <HelpIcon />, path: '/support', permission: 'customers:view' },
-    { text: 'Audit logs', icon: <SecurityIcon />, path: '/audit-logs', permission: 'audit-logs:view' },
-    { text: 'System settings', icon: <SettingsIcon />, path: '/system-settings', permission: 'system-settings:view' },
-    { text: 'Testing Tools', icon: <BugIcon />, path: '/testing-tools', permission: 'testing-tools:view' }
-  ];
-
-  const { can } = useAuth();
-
-  // Filter sidebar items according to user permissions
-  const filteredItems = SIDEBAR_ITEMS.filter(item => can(item.permission));
 
   return (
     <Box sx={{ display: 'flex' }}>
@@ -100,7 +128,7 @@ export function Layout() {
                   <ListItemIcon>
                     <LogoutIcon fontSize="small" />
                   </ListItemIcon>
-                  Sign Out
+                  Logout
                 </MenuItem>
               </Menu>
             </Box>
@@ -113,51 +141,87 @@ export function Layout() {
         sx={{
           width: drawerWidth,
           flexShrink: 0,
-          [`& .MuiDrawer-paper`]: {
+          '& .MuiDrawer-paper': {
             width: drawerWidth,
             boxSizing: 'border-box',
-            backgroundColor: '#1e1e1e',
+            backgroundColor: '#1a1a2e',
             borderRight: '1px solid #2c2c2c',
           },
         }}
       >
         <Toolbar />
-        <Box sx={{ overflow: 'auto', mt: 2 }}>
-          <List>
-            {filteredItems.map((item) => {
-              const active = location.pathname === item.path;
-              return (
-                <ListItem key={item.text} disablePadding>
-                  <ListItemButton
-                    onClick={() => navigate(item.path)}
-                    selected={active}
+        <Box sx={{ overflow: 'auto', mt: 1 }}>
+          {!navLoaded ? (
+            <Box display="flex" justifyContent="center" mt={4}>
+              <CircularProgress size={24} sx={{ color: '#bb86fc' }} />
+            </Box>
+          ) : (
+            <List dense>
+              {Object.entries(sections).map(([sectionLabel, items], sIdx) => (
+                <React.Fragment key={sectionLabel}>
+                  {sIdx > 0 && <Divider sx={{ borderColor: '#2c2c2c', my: 0.5 }} />}
+                  <Typography
+                    variant="caption"
                     sx={{
-                      mx: 1,
-                      my: 0.5,
-                      borderRadius: 1.5,
-                      '&.Mui-selected': {
-                        backgroundColor: 'rgba(187, 134, 252, 0.12)',
-                        color: '#bb86fc',
-                        '& .MuiListItemIcon-root': {
-                          color: '#bb86fc',
-                        },
-                      },
+                      px: 2,
+                      py: 0.5,
+                      display: 'block',
+                      color: '#666',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      fontSize: '0.65rem',
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: 40, color: 'text.secondary' }}>
-                      {item.icon}
-                    </ListItemIcon>
-                    <ListItemText primary={item.text} primaryTypographyProps={{ fontSize: 14, fontWeight: active ? 600 : 500 }} />
-                  </ListItemButton>
-                </ListItem>
-              );
-            })}
-          </List>
+                    {sectionLabel}
+                  </Typography>
+                  {items.map((item) => {
+                    const isActive =
+                      item.routePath === '/'
+                        ? location.pathname === '/'
+                        : location.pathname.startsWith(item.routePath);
+                    return (
+                      <ListItem key={item.menuKey} disablePadding>
+                        <Tooltip title={item.displayLabel} placement="right" arrow>
+                          <ListItemButton
+                            onClick={() => navigate(item.routePath)}
+                            selected={isActive}
+                            sx={{
+                              mx: 1,
+                              borderRadius: 1.5,
+                              '&.Mui-selected': {
+                                backgroundColor: '#bb86fc22',
+                                color: '#bb86fc',
+                                '& .MuiListItemIcon-root': { color: '#bb86fc' },
+                              },
+                              '&:hover': {
+                                backgroundColor: '#bb86fc11',
+                              },
+                            }}
+                          >
+                            <ListItemIcon sx={{ minWidth: 36, color: isActive ? '#bb86fc' : '#888' }}>
+                              {resolveIcon(item.iconKey)}
+                            </ListItemIcon>
+                            <ListItemText
+                              primary={item.displayLabel}
+                              primaryTypographyProps={{
+                                fontSize: '0.82rem',
+                                fontWeight: isActive ? 600 : 400,
+                                color: isActive ? '#bb86fc' : '#ccc',
+                              }}
+                            />
+                          </ListItemButton>
+                        </Tooltip>
+                      </ListItem>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </List>
+          )}
         </Box>
       </Drawer>
 
-      <Box component="main" sx={{ flexGrow: 1, p: 4, minHeight: '100vh', backgroundColor: '#121212' }}>
-        <Toolbar />
+      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: 8, backgroundColor: '#0a0a0a', minHeight: '100vh' }}>
         <Outlet />
       </Box>
     </Box>

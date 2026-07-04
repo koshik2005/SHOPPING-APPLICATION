@@ -221,3 +221,39 @@ class DeliveryRepository {
     return response.data['data'];
   }
 }
+
+class ConfigRepository {
+  final ApiClient _client;
+  ConfigRepository(this._client);
+
+  Future<Map<String, dynamic>> getSystemConfig(String category) async {
+    final response = await _client.dio.get('/api/v1/config/system', queryParameters: {'category': category});
+    return response.data['data'] ?? {};
+  }
+
+  Future<List<dynamic>> getServices() async {
+    final response = await _client.dio.get('/api/v1/config/services');
+    return response.data['data']?['services'] ?? [];
+  }
+
+  Future<List<dynamic>> getBanners(String? branchId) async {
+    final params = branchId != null ? {'branchId': branchId} : null;
+    final response = await _client.dio.get('/api/v1/config/banners', queryParameters: params);
+    return response.data['data']?['banners'] ?? [];
+  }
+
+  Future<Map<String, dynamic>> getLocalisation(String locale) async {
+    final response = await _client.dio.get('/api/v1/config/i18n', queryParameters: {'locale': locale});
+    return response.data['data']?['strings'] ?? {};
+  }
+
+  Future<double> resolvePricing(String ruleKey, String? serviceKey, String? branchId) async {
+    final params = {
+      'ruleKey': ruleKey,
+      if (serviceKey != null) 'serviceKey': serviceKey,
+      if (branchId != null) 'branchId': branchId,
+    };
+    final response = await _client.dio.get('/api/v1/config/pricing/resolve', queryParameters: params);
+    return (response.data['data']?['value'] ?? 0.0).toDouble();
+  }
+}

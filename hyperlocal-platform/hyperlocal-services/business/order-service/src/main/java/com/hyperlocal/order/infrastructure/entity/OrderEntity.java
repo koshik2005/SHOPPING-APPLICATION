@@ -6,6 +6,15 @@ import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * OrderEntity — Zero Hardcoding Refactor
+ *
+ * REMOVED: status = "DRAFT" hardcoded default
+ * ADDED:   service_key — routes the order to the correct workflow definition
+ *
+ * Initial status is now resolved dynamically from the workflow engine:
+ *   GET /api/v1/config/workflow?serviceKey=food → first step with is_initial=TRUE
+ */
 @Getter
 @Setter
 @Entity
@@ -22,8 +31,19 @@ public class OrderEntity {
     @Column(name = "branch_id", nullable = false)
     private UUID branchId;
 
-    @Column(nullable = false)
-    private String status = "DRAFT";
+    /**
+     * Service domain: "food", "grocery", "rides", "courier", etc.
+     * Determines which workflow_step_definitions apply to this order.
+     */
+    @Column(name = "service_key", length = 80)
+    private String serviceKey;
+
+    /**
+     * Current workflow step key — resolved from workflow_step_definitions.
+     * Never hardcoded; always comes from WorkflowService.resolveInitialStepKey().
+     */
+    @Column(nullable = true)
+    private String status;
 
     @Column(name = "total_price", nullable = false)
     private double totalPrice;
