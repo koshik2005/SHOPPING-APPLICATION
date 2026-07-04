@@ -27,9 +27,11 @@ public class OrderController {
     public ResponseEntity<ApiResponse<String>> updateStatus(
             @PathVariable("orderId") String orderId,
             @RequestHeader("X-User-ID") String actorId,
+            @RequestHeader(value = "X-User-Roles", defaultValue = "ROLE_CUSTOMER") String roles,
             @RequestParam("status") String status,
             @RequestParam(value = "remarks", defaultValue = "") String remarks) {
-        orderService.updateOrderStatus(UUID.fromString(orderId), status, UUID.fromString(actorId), remarks);
+        String primaryRole = roles.split(",")[0].trim();
+        orderService.updateOrderStatus(UUID.fromString(orderId), status, UUID.fromString(actorId), primaryRole, remarks);
         return ResponseEntity.ok(ApiResponse.ok("Order status updated successfully", UUID.randomUUID().toString()));
     }
 
