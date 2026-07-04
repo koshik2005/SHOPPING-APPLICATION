@@ -28,7 +28,6 @@ public class InventoryService {
 
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
-    private final ProductVariantRepository variantRepository;
     private final InventoryRepository inventoryRepository;
     private final ProductAttributeSchemaRepository attributeSchemaRepository;
     private final ProductAttributeValueRepository attributeValueRepository;

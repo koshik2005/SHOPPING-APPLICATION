@@ -1,7 +1,6 @@
 package com.hyperlocal.inventory.infrastructure.entity;
 
 import jakarta.persistence.*;
-import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
