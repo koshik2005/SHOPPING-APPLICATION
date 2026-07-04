@@ -7,6 +7,10 @@ import com.hyperlocal.auth.infrastructure.dto.AuthRequests.*;
 import com.hyperlocal.auth.infrastructure.entity.UserEntity;
 import com.hyperlocal.auth.infrastructure.entity.UserSessionEntity;
 import com.hyperlocal.auth.infrastructure.entity.OtpEntity;
+import com.hyperlocal.auth.infrastructure.entity.DeviceRegistryEntity;
+import com.hyperlocal.auth.infrastructure.entity.OtpRequestEntity;
+import com.hyperlocal.auth.infrastructure.entity.LoginAttemptEntity;
+import com.hyperlocal.auth.infrastructure.entity.UserLockHistoryEntity;
 import com.hyperlocal.auth.infrastructure.entity.AuthEntities.*;
 import com.hyperlocal.auth.infrastructure.repository.*;
 import com.hyperlocal.auth.infrastructure.config.JwtProvider;
@@ -39,6 +43,11 @@ public class AuthService {
     private final LoginHistoryRepository loginHistoryRepository;
     private final SecurityEventRepository securityEventRepository;
     private final OtpRepository otpRepository;
+    
+    private final DeviceRegistryRepository deviceRegistryRepository;
+    private final OtpRequestRepository otpRequestRepository;
+    private final LoginAttemptRepository loginAttemptRepository;
+    private final UserLockHistoryRepository userLockHistoryRepository;
 
     private final JwtProvider jwtProvider;
     private final GoogleIdTokenVerifierService googleIdTokenVerifierService;
@@ -110,7 +119,7 @@ public class AuthService {
         }
 
         // Otherwise complete login session immediately
-        return completeLoginSession(user, request.getDevice(), getClientIp(), getUserAgent());
+        return completeLoginSession(user, request.getDevice(), getClientIp(), getUserAgent(), false);
     }
 
     @Transactional
@@ -137,7 +146,7 @@ public class AuthService {
         identityRepository.save(identity);
 
         logger.log(Level.INFO, "Successfully registered new customer: {0}", request.getEmail());
-        return completeLoginSession(user, resolveDeviceDetails(), getClientIp(), getUserAgent());
+        return completeLoginSession(user, resolveDeviceDetails(), getClientIp(), getUserAgent(), false);
     }
 
     @Transactional
@@ -163,31 +172,36 @@ public class AuthService {
 
     @Transactional
     public AuthResponse verifyOtp(VerifyOtpRequest request) {
-        // Enforce Rate Limiting
+        // Enforce rate limiting
         enforceRateLimit(request.getEmailOrPhone());
 
         // Validate OTP from database
-        OtpEntity otp = otpRepository.findFirstByEmailOrPhoneAndOtpCodeAndUsedFalseOrderByCreatedAtDesc(
-                request.getEmailOrPhone(), request.getOtpCode())
-            .orElseThrow(() -> {
-                recordFailedAttempt(request.getEmailOrPhone());
-                return new BusinessException("Invalid OTP code", "INVALID_OTP");
-            });
+        var otpOpt = otpRequestRepository.findFirstByEmailOrPhoneAndVerifiedFalseAndExpiresAtAfterOrderByCreatedAtDesc(
+            request.getEmailOrPhone(), Instant.now()
+        );
 
-        if (otp.getExpiryTime().isBefore(Instant.now())) {
-            throw new BusinessException("OTP has expired", "OTP_EXPIRED");
+        if (otpOpt.isEmpty()) {
+            throw new BusinessException("OTP has expired or is invalid", "INVALID_OTP");
         }
 
-        // Mark OTP as used
-        otp.setUsed(true);
-        otpRepository.save(otp);
+        OtpRequestEntity otp = otpOpt.get();
+        if (!otp.getOtpCode().equals(request.getOtpCode())) {
+            otp.setAttempts(otp.getAttempts() + 1);
+            if (otp.getAttempts() >= 3) {
+                otp.setVerified(true); // Invalidate after 3 failed inputs
+            }
+            otpRequestRepository.save(otp);
+            throw new BusinessException("Invalid OTP code", "INVALID_OTP");
+        }
 
-        // Find user by email
+        otp.setVerified(true);
+        otpRequestRepository.save(otp);
+
         UserEntity user = userRepository.findByEmailAndDeletedFalse(request.getEmailOrPhone())
             .orElseThrow(() -> new BusinessException("User not found", "USER_NOT_FOUND"));
 
         logger.log(Level.INFO, "OTP verification successful for user: {0}", user.getEmail());
-        return completeLoginSession(user, resolveDeviceDetails(), getClientIp(), getUserAgent());
+        return completeLoginSession(user, resolveDeviceDetails(), getClientIp(), getUserAgent(), request.isTakeover());
     }
 
     @Transactional
@@ -198,14 +212,52 @@ public class AuthService {
         UserEntity user = userRepository.findByEmailAndDeletedFalse(request.getEmail())
             .orElseThrow(() -> new BusinessException("User not found", "USER_NOT_FOUND"));
 
+        // Match locks first
+        checkAccountLockStatus(user);
+
         // Match password hashes using BCrypt
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            recordFailedAttempt(request.getEmail());
+            handleFailedAttempt(request.getEmail());
             throw new BusinessException("Invalid password credentials", "INVALID_CREDENTIALS");
         }
 
+        // If Root / Admin initial credentials require force reset
+        if ("PASSWORD_CHANGE_REQUIRED".equals(user.getStatus())) {
+            return AuthResponse.builder()
+                .authenticationState("PASSWORD_CHANGE_REQUIRED")
+                .accessToken("FORCE_RESET_TEMP_TOKEN_" + user.getEmail())
+                .build();
+        }
+
+        // Enforce 2FA OTP for all admin/manager accounts
+        boolean isAdmin = user.getRoles().stream().anyMatch(role -> 
+            !role.equals("ROLE_CUSTOMER") && !role.equals("ROLE_DELIVERY_PARTNER")
+        );
+
+        if (isAdmin) {
+            String otpCode = String.format("%06d", secureRandom.nextInt(1000000));
+            OtpRequestEntity otp = new OtpRequestEntity();
+            otp.setEmailOrPhone(user.getEmail());
+            otp.setOtpCode(otpCode);
+            otp.setExpiresAt(Instant.now().plus(5, ChronoUnit.MINUTES));
+            otpRequestRepository.save(otp);
+
+            logger.log(Level.INFO, "[MFA OTP DISPATCH] Dispatched OTP code {0} to admin {1}",
+                new Object[]{otpCode, user.getEmail()});
+
+            return AuthResponse.builder()
+                .authenticationState("OTP_REQUIRED")
+                .existingProfile(AuthResponse.ExistingProfileDetails.builder()
+                    .displayName(user.getEmail().split("@")[0])
+                    .email(user.getEmail())
+                    .maskedMobileNumber(maskContact(user.getEmail()))
+                    .availableVerificationMethods(List.of("EMAIL_OTP"))
+                    .build())
+                .build();
+        }
+
         logger.log(Level.INFO, "Password verification successful for user: {0}", user.getEmail());
-        return completeLoginSession(user, resolveDeviceDetails(), getClientIp(), getUserAgent());
+        return completeLoginSession(user, resolveDeviceDetails(), getClientIp(), getUserAgent(), request.isTakeover());
     }
 
     @Transactional
@@ -285,7 +337,15 @@ public class AuthService {
             .orElseThrow(() -> new BusinessException("User not found", "USER_NOT_FOUND"));
 
         // Generate new token credentials (Token Rotation)
-        String newAccessToken = jwtProvider.generateAccessToken(user.getId(), user.getEmail(), "ROLE_CUSTOMER");
+        String newAccessToken = jwtProvider.generateAccessToken(
+            user.getId(),
+            user.getEmail(),
+            user.getRoles(),
+            user.getBranchId(),
+            user.getShopId(),
+            matchedSession.getId(),
+            matchedSession.getDeviceId()
+        );
         String newRefreshToken = UUID.randomUUID().toString();
 
         matchedSession.setRefreshTokenHash(passwordEncoder.encode(newRefreshToken));
@@ -335,19 +395,82 @@ public class AuthService {
         logger.log(Level.INFO, "Invalidated all active sessions for user: {0}", email);
     }
 
-    private AuthResponse completeLoginSession(UserEntity user, DeviceDetails device, String ipAddress, String userAgent) {
-        String accessToken = jwtProvider.generateAccessToken(user.getId(), user.getEmail(), "ROLE_CUSTOMER");
-        String refreshToken = UUID.randomUUID().toString();
+    private AuthResponse completeLoginSession(UserEntity user, DeviceDetails device, String ipAddress, String userAgent, boolean takeover) {
+        // Enforce Device Binding for Delivery Partners
+        if (user.getRoles().contains("ROLE_DELIVERY_PARTNER")) {
+            String incomingDeviceId = device != null ? device.getDeviceId() : "unknown_device";
+            var registeredDevices = deviceRegistryRepository.findByUserId(user.getId());
+            if (!registeredDevices.isEmpty()) {
+                boolean matches = registeredDevices.stream()
+                    .anyMatch(d -> d.getDeviceId().equals(incomingDeviceId));
+                if (!matches) {
+                    logger.warning("Device mismatch for delivery partner: " + user.getEmail() + ". Attempted: " + incomingDeviceId);
+                    return AuthResponse.builder()
+                        .authenticationState("DEVICE_MISMATCH")
+                        .existingProfile(AuthResponse.ExistingProfileDetails.builder()
+                            .email(user.getEmail())
+                            .build())
+                        .build();
+                }
+            } else {
+                // Register initial device
+                var reg = new DeviceRegistryEntity();
+                reg.setUserId(user.getId());
+                reg.setDeviceId(incomingDeviceId);
+                reg.setOsName(device != null ? device.getPlatform() : "Mobile");
+                reg.setOsVersion(device != null ? device.getOsVersion() : "Unknown");
+                reg.setBrowserName("DeliveryApp");
+                deviceRegistryRepository.save(reg);
+            }
+        }
 
-        // 1. Save session entry with secure hashed refresh token
+        // Enforce Single Active Session Policy for admin roles
+        boolean isAdmin = user.getRoles().stream().anyMatch(role -> 
+            !role.equals("ROLE_CUSTOMER") && !role.equals("ROLE_DELIVERY_PARTNER")
+        );
+
+        if (isAdmin) {
+            List<UserSessionEntity> activeSessions = sessionRepository.findByUserId(user.getId());
+            if (!activeSessions.isEmpty()) {
+                if (!takeover) {
+                    return AuthResponse.builder()
+                        .authenticationState("SESSION_CONFLICT")
+                        .existingProfile(AuthResponse.ExistingProfileDetails.builder()
+                            .email(user.getEmail())
+                            .displayName(user.getEmail().split("@")[0])
+                            .build())
+                        .build();
+                } else {
+                    // Invalidate previous sessions
+                    sessionRepository.deleteByUserId(user.getId());
+                    logger.info("Session takeover complete for user: " + user.getEmail() + ". Previous sessions cleared.");
+                }
+            }
+        }
+
+        // 1. Save session entry with secure hashed refresh token first to get session ID
         UserSessionEntity session = new UserSessionEntity();
         session.setUserId(user.getId());
         session.setDeviceId(device != null ? device.getDeviceId() : "unknown_device");
         session.setIpAddress(ipAddress);
         session.setUserAgent(userAgent);
         session.setExpiresAt(Instant.now().plus(7, ChronoUnit.DAYS));
+        session.setRefreshTokenHash(passwordEncoder.encode(UUID.randomUUID().toString())); // placeholder, set below
+        session = sessionRepository.save(session);
+
+        String refreshToken = UUID.randomUUID().toString();
         session.setRefreshTokenHash(passwordEncoder.encode(refreshToken));
         sessionRepository.save(session);
+
+        String accessToken = jwtProvider.generateAccessToken(
+            user.getId(),
+            user.getEmail(),
+            user.getRoles(),
+            user.getBranchId(),
+            user.getShopId(),
+            session.getId(),
+            device != null ? device.getDeviceId() : "unknown_device"
+        );
 
         // 2. Track & Register Device details
         if (device != null) {
@@ -357,6 +480,8 @@ public class AuthService {
         // 3. Record Successful Login history
         recordLoginAttempt(user, device, ipAddress, "SUCCESS", "LOGIN_COMPLETED");
 
+        String primaryRole = user.getRoles().isEmpty() ? "ROLE_CUSTOMER" : user.getRoles().iterator().next();
+
         return AuthResponse.builder()
             .authenticationState("LOGIN_COMPLETED")
             .accessToken(accessToken)
@@ -365,13 +490,68 @@ public class AuthService {
             .user(AuthResponse.UserDetails.builder()
                 .id(user.getId().toString())
                 .email(user.getEmail())
-                .role("ROLE_CUSTOMER")
+                .role(primaryRole)
                 .profile(AuthResponse.ProfileDetails.builder()
                     .displayName(user.getEmail().split("@")[0])
                     .profilePhotoUrl("https://cdn.hyperlocal.app/users/avatars/default.png")
                     .build())
                 .build())
             .build();
+    }
+
+    private void checkAccountLockStatus(UserEntity user) {
+        if ("TEMP_LOCKED".equals(user.getStatus())) {
+            var lockOpt = userLockHistoryRepository.findFirstByUserIdAndUnlockedAtIsNullOrderByLockedAtDesc(user.getId());
+            if (lockOpt.isPresent()) {
+                var lock = lockOpt.get();
+                if (lock.getLockedAt().plus(15, ChronoUnit.MINUTES).isAfter(Instant.now())) {
+                    throw new BusinessException("Account is temporarily locked. Try again later.", "ACCOUNT_TEMP_LOCKED");
+                } else {
+                    user.setStatus("ACTIVE");
+                    userRepository.save(user);
+                    lock.setUnlockedAt(Instant.now());
+                    userLockHistoryRepository.save(lock);
+                }
+            }
+        } else if ("PERM_LOCKED".equals(user.getStatus())) {
+            throw new BusinessException("Account is permanently locked. Contact administrator.", "ACCOUNT_PERM_LOCKED");
+        }
+    }
+
+    private void handleFailedAttempt(String email) {
+        LoginAttemptEntity attempt = new LoginAttemptEntity();
+        attempt.setEmail(email);
+        attempt.setIpAddress(getClientIp());
+        attempt.setStatus("FAILED");
+        attempt.setFailureReason("INVALID_PASSWORD");
+        loginAttemptRepository.save(attempt);
+
+        Instant threshold = Instant.now().minus(15, ChronoUnit.MINUTES);
+        long fails = loginAttemptRepository.countByEmailAndStatusAndAttemptTimeAfter(email, "FAILED", threshold);
+
+        var userOpt = userRepository.findByEmailAndDeletedFalse(email);
+        if (userOpt.isPresent()) {
+            UserEntity user = userOpt.get();
+            if (fails >= 10) {
+                user.setStatus("PERM_LOCKED");
+                userRepository.save(user);
+
+                var lock = new UserLockHistoryEntity();
+                lock.setUserId(user.getId());
+                lock.setLockType("PERMANENT");
+                lock.setReason("10 failed attempts reached");
+                userLockHistoryRepository.save(lock);
+            } else if (fails >= 5 && !"TEMP_LOCKED".equals(user.getStatus())) {
+                user.setStatus("TEMP_LOCKED");
+                userRepository.save(user);
+
+                var lock = new UserLockHistoryEntity();
+                lock.setUserId(user.getId());
+                lock.setLockType("TEMPORARY");
+                lock.setReason("5 failed attempts reached");
+                userLockHistoryRepository.save(lock);
+            }
+        }
     }
 
     private void registerOrUpdateDevice(UserEntity user, DeviceDetails details) {

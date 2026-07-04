@@ -1,6 +1,7 @@
 package com.hyperlocal.auth.infrastructure.adapter.inbound;
 
 import com.hyperlocal.auth.application.service.AuthService;
+import com.hyperlocal.auth.infrastructure.config.JwtProvider;
 import com.hyperlocal.auth.infrastructure.dto.*;
 import com.hyperlocal.core.domain.ApiResponse;
 import jakarta.validation.Valid;
@@ -17,6 +18,12 @@ import java.util.logging.Level;
 public class AuthController {
     private static final Logger logger = Logger.getLogger(AuthController.class.getName());
     private final AuthService authService;
+    private final JwtProvider jwtProvider;
+
+    @GetMapping("/jwks.json")
+    public java.util.Map<String, Object> getJwks() {
+        return jwtProvider.getJwks();
+    }
 
     @PostMapping({"/google-login", "/google"})
     public ResponseEntity<ApiResponse<AuthResponse>> googleLogin(@Valid @RequestBody GoogleLoginRequest request) {

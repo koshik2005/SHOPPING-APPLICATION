@@ -5,6 +5,8 @@ import os
 import time
 import base64
 import uuid
+import threading
+import queue
 from urllib.parse import urlparse, parse_qs
 
 def decode_google_id_token_unsafe(id_token):
@@ -53,6 +55,33 @@ def write_db(data):
     with open(DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
+# ─── SSE Subscriber Registry ────────────────────────────────────────────────
+_sse_subscribers = []
+_sse_lock = threading.Lock()
+_event_log = []   # keeps last 500 events in memory
+
+def broadcast_event(event_type: str, action: str, payload: dict):
+    """Broadcast a structured event to all connected SSE clients."""
+    event = {
+        'id': str(uuid.uuid4())[:8],
+        'type': event_type,
+        'action': action,
+        'payload': payload,
+        'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+    }
+    _event_log.append(event)
+    if len(_event_log) > 500:
+        _event_log.pop(0)
+    with _sse_lock:
+        dead = []
+        for q in _sse_subscribers:
+            try:
+                q.put_nowait(event)
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            _sse_subscribers.remove(q)
+
 class ApiHandler(http.server.BaseHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -73,8 +102,175 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
         path_only = parsed_url.path
         parts = path_only.split('/')
         
+        # ─── PORTAL: Server-Sent Events (Live Event Monitor) ────────────────────────
+        if path_only == '/api/portal/events':
+            my_q = queue.Queue()
+            with _sse_lock:
+                _sse_subscribers.append(my_q)
+            try:
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/event-stream')
+                self.send_header('Cache-Control', 'no-cache')
+                self.send_header('Connection', 'keep-alive')
+                self.end_headers()
+                # Send last 50 events as replay
+                for ev in _event_log[-50:]:
+                    self.wfile.write(f"data: {json.dumps(ev)}\n\n".encode())
+                    self.wfile.flush()
+                while True:
+                    try:
+                        ev = my_q.get(timeout=25)
+                        self.wfile.write(f"data: {json.dumps(ev)}\n\n".encode())
+                        self.wfile.flush()
+                    except queue.Empty:
+                        self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+            except Exception:
+                pass
+            finally:
+                with _sse_lock:
+                    if my_q in _sse_subscribers:
+                        _sse_subscribers.remove(my_q)
+            return
+
+        # ─── PORTAL: Dashboard stats ─────────────────────────────────────────────────
+        elif path_only == '/api/portal/dashboard':
+            orders = db.get('orders', [])
+            users = db.get('users', {})
+            partners = db.get('delivery_partners', [])
+            branches = db.get('branches', {})
+            shops = db.get('shops', [])
+            categories = list(db.get('branches', {}).get('branch-a', {}).get('categories', []))
+            products = list(db.get('branches', {}).get('branch-a', {}).get('products', []))
+            wallet_balance = db.get('user', {}).get('walletBalance', 0)
+            pending_orders = [o for o in orders if o.get('status') == 'PENDING']
+            today_revenue = sum(o.get('totalPrice', 0) for o in orders if o.get('status') not in ['CANCELLED', 'REFUNDED'])
+            onboarding = db.get('onboarding_requests', [])
+            stats = {
+                'totalOrders': len(orders),
+                'pendingOrders': len(pending_orders),
+                'totalCustomers': len(users),
+                'totalBranches': len(branches),
+                'activeShops': len(shops),
+                'totalCategories': len(categories),
+                'totalProducts': len(products),
+                'deliveryPartners': len(partners),
+                'onlinePartners': len([p for p in partners if p.get('status') != 'OFFLINE']),
+                'todayRevenue': round(today_revenue, 2),
+                'walletBalance': wallet_balance,
+                'pendingOnboarding': len([r for r in onboarding if r.get('status') == 'PENDING_APPROVAL']),
+                'sseSubscribers': len(_sse_subscribers),
+                'eventLogCount': len(_event_log),
+            }
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': stats}).encode())
+            return
+
+        # ─── PORTAL: Full DB snapshot (read-only) ────────────────────────────────────
+        elif path_only == '/api/portal/db-snapshot':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': db}).encode())
+            return
+
+        # ─── PORTAL: All orders ───────────────────────────────────────────────────────
+        elif path_only == '/api/portal/orders':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': db.get('orders', [])}).encode())
+            return
+
+        # ─── PORTAL: All users ────────────────────────────────────────────────────────
+        elif path_only == '/api/portal/users':
+            users_map = db.get('users', {})
+            users_list = [{'email': k, **v} for k, v in users_map.items()]
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': users_list}).encode())
+            return
+
+        # ─── PORTAL: Banners ─────────────────────────────────────────────────────────
+        elif path_only == '/api/portal/banners':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': db.get('banners', [])}).encode())
+            return
+
+        # ─── PORTAL: Offers ──────────────────────────────────────────────────────────
+        elif path_only == '/api/portal/offers':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': db.get('offers', [])}).encode())
+            return
+
+        # ─── PORTAL: Notification history ────────────────────────────────────────────
+        elif path_only == '/api/portal/notifications':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': db.get('notification_log', [])}).encode())
+            return
+
+        # ─── PORTAL: App config ───────────────────────────────────────────────────────
+        elif path_only == '/api/portal/config':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': db.get('config', {})}).encode())
+            return
+
+        # ─── PORTAL: Delivery Partners ────────────────────────────────────────────────
+        elif path_only == '/api/portal/partners':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': db.get('delivery_partners', [])}).encode())
+            return
+
+        # ─── PORTAL: Branches ─────────────────────────────────────────────────────────
+        elif path_only == '/api/portal/branches':
+            branches_list = [{'id': k, **v} for k, v in db.get('branches', {}).items()]
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': branches_list}).encode())
+            return
+
+        # ─── PORTAL: Categories ───────────────────────────────────────────────────────
+        elif path_only == '/api/portal/categories':
+            cats = db.get('branches', {}).get('branch-a', {}).get('categories', [])
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': cats}).encode())
+            return
+
+        # ─── PORTAL: Products ─────────────────────────────────────────────────────────
+        elif path_only == '/api/portal/products':
+            prods = db.get('branches', {}).get('branch-a', {}).get('products', [])
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': prods}).encode())
+            return
+
+        # ─── PORTAL: Shops ────────────────────────────────────────────────────────────
+        elif path_only == '/api/portal/shops':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'data': db.get('shops', [])}).encode())
+            return
+
         # Delivery boy web UI
-        if path_only == '/delivery':
+        elif path_only == '/delivery':
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
@@ -97,6 +293,15 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({"data": partners}).encode('utf-8'))
+            return
+
+        # GET /api/delivery/orders
+        elif path_only == '/api/delivery/orders':
+            orders = db.get("orders", [])
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"data": orders}).encode('utf-8'))
             return
 
         # GET /api/v1/deliveries/order/{orderId}/status
@@ -260,25 +465,60 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                 
                 mock_data = {}
                 if path_only == '/api/v1/auth/google-login':
-                    mock_data = {
-                        "status": "SUCCESS",
-                        "data": {
-                            "authenticationState": "LOGIN_COMPLETED",
-                            "accessToken": "mock_access_token_google",
-                            "refreshToken": "mock_refresh_token_google",
-                            "expiresIn": 3600,
-                            "user": {
-                                "id": "87ef769c-d021-4f11-ba32-aafe812bb31c",
-                                "email": payload.get("email", "Kishore.r.cseacet@gmail.com"),
-                                "mobileNumber": "+15559990001",
-                                "role": "CUSTOMER",
-                                "profile": {
-                                    "displayName": "Kishore R",
-                                    "profilePhotoUrl": ""
+                    id_token = payload.get('idToken', '')
+                    google_user = {}
+                    try:
+                        parts = id_token.split('.')
+                        if len(parts) == 3:
+                            import base64
+                            payload_b64 = parts[1]
+                            payload_b64 += '=' * (4 - len(payload_b64) % 4)
+                            google_user = json.loads(base64.urlsafe_b64decode(payload_b64).decode('utf-8'))
+                    except Exception as e:
+                        print(f"[JWT DECODE ERROR] {e}")
+                    
+                    email = google_user.get('email', '')
+                    name = google_user.get('name', '')
+                    picture = google_user.get('picture', '')
+                    sub = google_user.get('sub', '')
+                    
+                    print(f"[AUTH MOCK] Decoded ID Token: email={email}, name={name}, picture={picture}, sub={sub}")
+                    
+                    # If this is our pre-registered test account, complete login directly
+                    if email == 'Kishore.r.cseacet@gmail.com':
+                        mock_data = {
+                            "status": "SUCCESS",
+                            "data": {
+                                "authenticationState": "LOGIN_COMPLETED",
+                                "accessToken": "mock_access_token_google",
+                                "refreshToken": "mock_refresh_token_google",
+                                "expiresIn": 3600,
+                                "user": {
+                                    "id": "87ef769c-d021-4f11-ba32-aafe812bb31c",
+                                    "email": email,
+                                    "mobileNumber": "+15559990001",
+                                    "role": "CUSTOMER",
+                                    "profile": {
+                                        "displayName": name or "Kishore R",
+                                        "profilePhotoUrl": picture or ""
+                                    }
                                 }
                             }
                         }
-                    }
+                    else:
+                        # Return REGISTRATION_REQUIRED for new Google Accounts
+                        mock_data = {
+                            "status": "SUCCESS",
+                            "data": {
+                                "authenticationState": "REGISTRATION_REQUIRED",
+                                "googleProfile": {
+                                    "displayName": name or "Alex Johnson",
+                                    "email": email or "alex.j@example.com",
+                                    "profilePhotoUrl": picture or "https://cdn.hyperlocal.app/users/avatars/default.png",
+                                    "googleSub": sub or "google_sub_1092837482"
+                                }
+                            }
+                        }
                 elif path_only == '/api/v1/auth/verify-password':
                     mock_data = {
                         "status": "SUCCESS",
@@ -754,6 +994,422 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(new_prod).encode('utf-8'))
             return
+
+        # ─── PORTAL POST ROUTES ───────────────────────────────────────────────────────
+
+        elif path_only.startswith('/api/portal/'):
+            action = path_only[len('/api/portal/'):]
+            ok = {'success': True}
+
+            # BRANCHES
+            if action == 'branches/create':
+                bid = payload.get('id', 'branch-' + str(uuid.uuid4())[:4])
+                new_branch = {
+                    'id': bid, 'name': payload.get('name','New Branch'),
+                    'address': payload.get('address',''), 'isOpen': True,
+                    'latitude': payload.get('latitude', 37.7749),
+                    'longitude': payload.get('longitude', -122.4194),
+                    'servingRadiusKm': payload.get('servingRadiusKm', 5.0),
+                    'deliveryFee': payload.get('deliveryFee', 2.5),
+                    'workingHours': payload.get('workingHours','08:00 AM - 10:00 PM'),
+                    'taxRate': payload.get('taxRate', 0.08),
+                    'categories': [], 'products': []
+                }
+                db.setdefault('branches', {})[bid] = new_branch
+                write_db(db)
+                broadcast_event('BRANCH', 'CREATE', {'branchId': bid, 'name': new_branch['name']})
+                ok['data'] = new_branch
+
+            elif action == 'branches/update':
+                bid = payload.get('id', 'branch-a')
+                branch = db.setdefault('branches', {}).setdefault(bid, {})
+                for k in ['name','address','isOpen','servingRadiusKm','deliveryFee','workingHours','taxRate']:
+                    if k in payload: branch[k] = payload[k]
+                write_db(db)
+                broadcast_event('BRANCH', 'UPDATE', {'branchId': bid})
+                ok['data'] = branch
+
+            elif action == 'branches/delete':
+                bid = payload.get('id')
+                if bid and bid in db.get('branches', {}):
+                    del db['branches'][bid]
+                    write_db(db)
+                    broadcast_event('BRANCH', 'DELETE', {'branchId': bid})
+
+            # SHOPS
+            elif action == 'shops/create':
+                new_shop = {
+                    'id': payload.get('id', str(uuid.uuid4())),
+                    'name': payload.get('name','').strip(),
+                    'isOpen': payload.get('isOpen', True),
+                    'rating': payload.get('rating', 4.5),
+                    'deliveryTime': payload.get('deliveryTime', '20-30 min'),
+                    'logoUrl': payload.get('logoUrl', ''),
+                    'bannerUrl': payload.get('bannerUrl', ''),
+                    'status': 'ACTIVE',
+                }
+                db.setdefault('shops', []).append(new_shop)
+                write_db(db)
+                broadcast_event('SHOP', 'CREATE', {'name': new_shop['name']})
+                ok['data'] = new_shop
+
+            elif action == 'shops/toggle':
+                sid = payload.get('id')
+                for s in db.get('shops', []):
+                    if s.get('id') == sid:
+                        s['isOpen'] = not s.get('isOpen', True)
+                        write_db(db)
+                        broadcast_event('SHOP', 'TOGGLE', {'id': sid, 'isOpen': s['isOpen']})
+                        ok['data'] = s
+                        break
+
+            elif action == 'shops/update':
+                sid = payload.get('id')
+                for s in db.get('shops', []):
+                    if s.get('id') == sid:
+                        for k in ['name','isOpen','rating','deliveryTime','logoUrl','bannerUrl','status']:
+                            if k in payload: s[k] = payload[k]
+                        write_db(db)
+                        broadcast_event('SHOP', 'UPDATE', {'id': sid})
+                        ok['data'] = s
+                        break
+
+            elif action == 'shops/delete':
+                sid = payload.get('id')
+                db['shops'] = [s for s in db.get('shops', []) if s.get('id') != sid]
+                write_db(db)
+                broadcast_event('SHOP', 'DELETE', {'id': sid})
+
+            # CATEGORIES
+            elif action == 'categories/create':
+                new_cat = {
+                    'id': payload.get('id', payload.get('label','').lower().replace(' ', '-')),
+                    'label': payload.get('label',''),
+                    'iconUrl': payload.get('iconUrl','📦'),
+                    'isAvailable': True,
+                    'displayOrder': payload.get('displayOrder', 99),
+                }
+                branch = db.setdefault('branches', {}).setdefault('branch-a', {})
+                branch.setdefault('categories', []).append(new_cat)
+                write_db(db)
+                broadcast_event('CATEGORY', 'CREATE', {'label': new_cat['label']})
+                ok['data'] = new_cat
+
+            elif action == 'categories/update':
+                cid = payload.get('id')
+                cats = db.get('branches',{}).get('branch-a',{}).get('categories',[])
+                for c in cats:
+                    if c.get('id') == cid:
+                        for k in ['label','iconUrl','isAvailable','displayOrder']:
+                            if k in payload: c[k] = payload[k]
+                        write_db(db)
+                        broadcast_event('CATEGORY', 'UPDATE', {'id': cid})
+                        ok['data'] = c
+                        break
+
+            elif action == 'categories/delete':
+                cid = payload.get('id')
+                branch = db.setdefault('branches', {}).setdefault('branch-a', {})
+                branch['categories'] = [c for c in branch.get('categories', []) if c.get('id') != cid]
+                write_db(db)
+                broadcast_event('CATEGORY', 'DELETE', {'id': cid})
+
+            elif action == 'categories/reorder':
+                order = payload.get('order', [])  # list of ids in new order
+                cats = db.get('branches',{}).get('branch-a',{}).get('categories',[])
+                id_map = {c['id']: c for c in cats}
+                new_list = [id_map[oid] for oid in order if oid in id_map]
+                for i, c in enumerate(new_list): c['displayOrder'] = i + 1
+                db['branches']['branch-a']['categories'] = new_list
+                write_db(db)
+                broadcast_event('CATEGORY', 'REORDER', {'order': order})
+
+            # PRODUCTS
+            elif action == 'products/create':
+                new_prod = {
+                    'id': payload.get('id', str(uuid.uuid4())[:8]),
+                    'categoryId': payload.get('categoryId',''),
+                    'name': payload.get('name',''),
+                    'description': payload.get('description',''),
+                    'price': float(payload.get('price', 0)),
+                    'discountPrice': payload.get('discountPrice'),
+                    'taxRate': float(payload.get('taxRate', 0)),
+                    'stock': int(payload.get('stock', 100)),
+                    'isAvailable': True,
+                    'imageUrl': payload.get('imageUrl',''),
+                    'tags': payload.get('tags', []),
+                }
+                branch = db.setdefault('branches',{}).setdefault('branch-a',{})
+                branch.setdefault('products',[]).append(new_prod)
+                write_db(db)
+                broadcast_event('PRODUCT', 'CREATE', {'name': new_prod['name']})
+                ok['data'] = new_prod
+
+            elif action == 'products/toggle':
+                pid = payload.get('id')
+                for p in db.get('branches',{}).get('branch-a',{}).get('products',[]):
+                    if p.get('id') == pid:
+                        p['isAvailable'] = not p.get('isAvailable', True)
+                        write_db(db)
+                        broadcast_event('PRODUCT', 'TOGGLE', {'id': pid, 'isAvailable': p['isAvailable']})
+                        ok['data'] = p
+                        break
+
+            elif action == 'products/update':
+                pid = payload.get('id')
+                for p in db.get('branches',{}).get('branch-a',{}).get('products',[]):
+                    if p.get('id') == pid:
+                        for k in ['name','description','price','discountPrice','taxRate','stock','isAvailable','imageUrl','categoryId']:
+                            if k in payload: p[k] = payload[k]
+                        write_db(db)
+                        broadcast_event('PRODUCT', 'UPDATE', {'id': pid})
+                        ok['data'] = p
+                        break
+
+            elif action == 'products/delete':
+                pid = payload.get('id')
+                branch = db.setdefault('branches',{}).setdefault('branch-a',{})
+                branch['products'] = [p for p in branch.get('products',[]) if p.get('id') != pid]
+                write_db(db)
+                broadcast_event('PRODUCT', 'DELETE', {'id': pid})
+
+            # INVENTORY
+            elif action == 'inventory/adjust':
+                pid = payload.get('productId')
+                delta = int(payload.get('delta', 0))
+                set_to = payload.get('setTo')
+                for p in db.get('branches',{}).get('branch-a',{}).get('products',[]):
+                    if p.get('id') == pid:
+                        if set_to is not None:
+                            p['stock'] = int(set_to)
+                        else:
+                            p['stock'] = max(0, int(p.get('stock', 0)) + delta)
+                        if p['stock'] == 0:
+                            p['isAvailable'] = False
+                        write_db(db)
+                        broadcast_event('INVENTORY', 'ADJUST', {'productId': pid, 'stock': p['stock']})
+                        ok['data'] = {'stock': p['stock']}
+                        break
+
+            # ORDERS
+            elif action == 'orders/create-test':
+                order_id = 'HL-TEST-' + str(int(time.time()))[-6:]
+                new_order = {
+                    'id': order_id,
+                    'customerId': payload.get('customerId','87ef769c-d021-4f11-ba32-aafe812bb31c'),
+                    'branchId': payload.get('branchId','branch-a'),
+                    'totalPrice': float(payload.get('totalPrice', 99.0)),
+                    'deliveryFee': float(payload.get('deliveryFee', 2.5)),
+                    'status': 'PENDING',
+                    'history': [{'status': 'PENDING', 'remarks': 'Test order created by portal', 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ')}],
+                    'driverName': '', 'driverPhone': '',
+                    'items': payload.get('items', []),
+                    'createdAt': time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                }
+                db.setdefault('orders', []).append(new_order)
+                write_db(db)
+                broadcast_event('ORDER', 'CREATED', {'orderId': order_id, 'totalPrice': new_order['totalPrice']})
+                ok['data'] = new_order
+
+            elif action == 'orders/advance-status':
+                STATUS_FLOW = ['PENDING','ACCEPTED','PREPARING','PACKED','READY','PICKED_UP','IN_TRANSIT','DELIVERED']
+                order_id = payload.get('orderId')
+                new_status = payload.get('status')
+                remarks = payload.get('remarks', f'Status updated via Testing Portal')
+                for o in db.get('orders', []):
+                    if o.get('id') == order_id:
+                        o['status'] = new_status
+                        o.setdefault('history', []).append({
+                            'status': new_status, 'remarks': remarks,
+                            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ')
+                        })
+                        write_db(db)
+                        broadcast_event('ORDER', 'STATUS_UPDATE', {'orderId': order_id, 'status': new_status})
+                        ok['data'] = o
+                        break
+
+            # WALLET
+            elif action == 'wallet/adjust':
+                amount = float(payload.get('amount', 0))
+                operation = payload.get('operation', 'CREDIT')  # CREDIT or DEBIT
+                current = db.get('user', {}).get('walletBalance', 0)
+                if operation == 'CREDIT':
+                    db.setdefault('user', {})['walletBalance'] = round(current + amount, 2)
+                else:
+                    db.setdefault('user', {})['walletBalance'] = round(max(0, current - amount), 2)
+                write_db(db)
+                new_bal = db['user']['walletBalance']
+                broadcast_event('WALLET', operation, {'amount': amount, 'balance': new_bal})
+                ok['data'] = {'walletBalance': new_bal, 'operation': operation}
+
+            # PAYMENT
+            elif action == 'payment/inject':
+                order_id = payload.get('orderId')
+                result = payload.get('result', 'SUCCESS')  # SUCCESS, FAILED, PENDING, TIMEOUT, REFUNDED
+                for o in db.get('orders', []):
+                    if o.get('id') == order_id:
+                        o['paymentStatus'] = result
+                        o.setdefault('history', []).append({
+                            'status': f'PAYMENT_{result}', 'remarks': f'Payment injected as {result} by portal',
+                            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ')
+                        })
+                        write_db(db)
+                        broadcast_event('PAYMENT', result, {'orderId': order_id})
+                        ok['data'] = {'orderId': order_id, 'paymentStatus': result}
+                        break
+
+            # NOTIFICATIONS
+            elif action == 'notifications/send':
+                notif = {
+                    'id': str(uuid.uuid4())[:8],
+                    'type': payload.get('type', 'INFO'),
+                    'title': payload.get('title',''),
+                    'body': payload.get('body',''),
+                    'targetType': payload.get('targetType', 'ALL'),
+                    'sentAt': time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                }
+                db.setdefault('notification_log', []).append(notif)
+                write_db(db)
+                broadcast_event('NOTIFICATION', payload.get('type','INFO'), notif)
+                ok['data'] = notif
+
+            # BANNERS
+            elif action == 'banners/create':
+                new_banner = {
+                    'id': str(uuid.uuid4()),
+                    'title': payload.get('title',''),
+                    'imageUrl': payload.get('imageUrl',''),
+                    'linkUrl': payload.get('linkUrl',''),
+                    'priority': int(payload.get('priority', 1)),
+                    'isActive': True,
+                    'createdAt': time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                }
+                db.setdefault('banners', []).append(new_banner)
+                write_db(db)
+                broadcast_event('BANNER', 'CREATE', {'title': new_banner['title']})
+                ok['data'] = new_banner
+
+            elif action == 'banners/toggle':
+                bid = payload.get('id')
+                for b in db.get('banners', []):
+                    if b.get('id') == bid:
+                        b['isActive'] = not b.get('isActive', True)
+                        write_db(db)
+                        broadcast_event('BANNER', 'TOGGLE', {'id': bid})
+                        break
+
+            elif action == 'banners/delete':
+                bid = payload.get('id')
+                db['banners'] = [b for b in db.get('banners', []) if b.get('id') != bid]
+                write_db(db)
+                broadcast_event('BANNER', 'DELETE', {'id': bid})
+
+            # OFFERS
+            elif action == 'offers/create':
+                new_offer = {
+                    'id': str(uuid.uuid4()),
+                    'type': payload.get('type','COUPON'),
+                    'code': payload.get('code','').upper(),
+                    'title': payload.get('title',''),
+                    'discountType': payload.get('discountType','PERCENT'),
+                    'discountValue': float(payload.get('discountValue', 10)),
+                    'minOrderValue': float(payload.get('minOrderValue', 0)),
+                    'maxDiscount': payload.get('maxDiscount'),
+                    'isActive': True,
+                    'expiresAt': payload.get('expiresAt',''),
+                    'createdAt': time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                }
+                db.setdefault('offers', []).append(new_offer)
+                write_db(db)
+                broadcast_event('OFFER', 'CREATE', {'code': new_offer['code'], 'type': new_offer['type']})
+                ok['data'] = new_offer
+
+            elif action == 'offers/toggle':
+                oid = payload.get('id')
+                for o in db.get('offers', []):
+                    if o.get('id') == oid:
+                        o['isActive'] = not o.get('isActive', True)
+                        write_db(db)
+                        broadcast_event('OFFER', 'TOGGLE', {'id': oid})
+                        break
+
+            elif action == 'offers/delete':
+                oid = payload.get('id')
+                db['offers'] = [o for o in db.get('offers', []) if o.get('id') != oid]
+                write_db(db)
+                broadcast_event('OFFER', 'DELETE', {'id': oid})
+
+            # CONFIG
+            elif action == 'config/update':
+                cfg = db.setdefault('config', {})
+                for k, v in payload.items():
+                    cfg[k] = v
+                write_db(db)
+                broadcast_event('CONFIG', 'UPDATE', payload)
+                ok['data'] = cfg
+
+            # USERS
+            elif action == 'users/create':
+                email = payload.get('email', '')
+                if email:
+                    db.setdefault('users', {})[email] = {
+                        'id': str(uuid.uuid4()),
+                        'name': payload.get('name', ''),
+                        'email': email,
+                        'mobileNumber': payload.get('mobileNumber', ''),
+                        'role': payload.get('role', 'CUSTOMER'),
+                        'status': 'ACTIVE',
+                        'picture': '',
+                        'createdAt': time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    }
+                    write_db(db)
+                    broadcast_event('USER', 'CREATE', {'email': email, 'role': payload.get('role','CUSTOMER')})
+                    ok['data'] = db['users'][email]
+
+            elif action == 'users/manage':
+                email = payload.get('email', '')
+                action_type = payload.get('action', 'SUSPEND')  # SUSPEND, ACTIVATE, DELETE
+                users = db.get('users', {})
+                if email in users:
+                    if action_type == 'DELETE':
+                        del users[email]
+                    else:
+                        users[email]['status'] = 'SUSPENDED' if action_type == 'SUSPEND' else 'ACTIVE'
+                    write_db(db)
+                    broadcast_event('USER', action_type, {'email': email})
+
+            # DELIVERY GPS
+            elif action == 'delivery/move-rider':
+                partner_id = payload.get('partnerId')
+                lat = float(payload.get('latitude', 37.7749))
+                lng = float(payload.get('longitude', -122.4194))
+                for p in db.get('delivery_partners', []):
+                    if p.get('id') == partner_id:
+                        p['latitude'] = lat
+                        p['longitude'] = lng
+                        write_db(db)
+                        broadcast_event('DELIVERY', 'GPS_UPDATE', {'partnerId': partner_id, 'lat': lat, 'lng': lng})
+                        ok['data'] = {'latitude': lat, 'longitude': lng}
+                        break
+
+            # PERMISSION FLAGS
+            elif action == 'permissions/set':
+                perm = db.setdefault('portal_permissions', {})
+                perm.update(payload)
+                write_db(db)
+                broadcast_event('PERMISSION', 'SET', payload)
+                ok['data'] = perm
+
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': f'Unknown portal action: {action}'}).encode())
+                return
+
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(ok).encode())
 
         else:
             self.send_response(400)
@@ -1434,6 +2090,10 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             margin-top: 15px;
             text-align: center;
         }}
+        @keyframes spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
         .map-sim {{
             background: #020617;
             border-radius: 12px;
@@ -1445,6 +2105,18 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
     </style>
 </head>
 <body>
+    <!-- Beautiful SMS Simulator Banner -->
+    <div id="smsBanner" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); width:90%; max-width:450px; background:rgba(15, 23, 42, 0.95); border:1px solid #38bdf8; padding:16px 20px; border-radius:16px; box-shadow:0 10px 40px rgba(0,0,0,0.5); z-index:9999; backdrop-filter:blur(10px); transition:all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+        <div style="display:flex; align-items:start; gap:12px;">
+            <div style="font-size:24px;">💬</div>
+            <div style="flex:1;">
+                <strong style="color:#38bdf8; font-size:14px; display:block; margin-bottom:2px; text-transform:none;">Simulated Carrier SMS</strong>
+                <p id="smsMessage" style="font-size:13px; color:#cbd5e1; line-height:1.4;"></p>
+            </div>
+            <button onclick="document.getElementById('smsBanner').style.display='none'" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px;">✕</button>
+        </div>
+    </div>
+
     <div class="container">
         <h1>HyperLocal Delivery Fleet Portal</h1>
         <p class="subtitle">Driver Registration, UPI-style Login & Location Tracking Simulator</p>
@@ -1530,6 +2202,13 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                         <input type="text" id="loginMobile" placeholder="+15559990001">
                     </div>
                     <button class="btn" onclick="startSimVerification()">Verify & Log In</button>
+                </div>
+
+                <!-- SIM Checking Loading Animation -->
+                <div id="simLoadingBox" class="verify-box" style="display:none;">
+                    <div style="display:inline-block; width:40px; height:40px; border:4px solid rgba(56,189,248,0.1); border-left-color:#38bdf8; border-radius:50%; animation:spin 1s linear infinite; margin-bottom:15px;"></div>
+                    <h3>Verifying SIM Card...</h3>
+                    <p style="color:#94a3b8; font-size:13px; margin-top:8px;" id="simLoadingText">Checking SIM signatures on network carrier...</p>
                 </div>
 
                 <!-- Sim verification overlay -->
@@ -1630,15 +2309,43 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             }}
         }}
 
+        let generatedOtp = '123456';
+
         function startSimVerification() {{
+            const loginId = document.getElementById('loginId').value;
+            const password = document.getElementById('loginPass').value;
+            const mobile = document.getElementById('loginMobile').value;
+            if (!loginId || !password || !mobile) {{
+                alert('Please enter all login credentials');
+                return;
+            }}
             document.getElementById('loginFormSection').style.display = 'none';
             document.getElementById('simVerificationBox').style.display = 'block';
         }}
 
         function selectSim(simNo) {{
             document.getElementById('simVerificationBox').style.display = 'none';
-            // Show OTP step
-            document.getElementById('otpBox').style.display = 'block';
+            document.getElementById('simLoadingBox').style.display = 'block';
+            
+            const mobile = document.getElementById('loginMobile').value;
+            document.getElementById('simLoadingText').innerText = `Simulating SIM matching verification for registered number $\{{mobile}} on SIM $\{{simNo}}...`;
+            
+            setTimeout(() => {{
+                document.getElementById('simLoadingBox').style.display = 'none';
+                
+                // Generate a random 6-digit OTP code
+                generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+                
+                // Show SMS Banner Notification
+                document.getElementById('smsMessage').innerText = `Your HyperLocal verification code is: $\{{generatedOtp}}. Do not share this OTP.`;
+                document.getElementById('smsBanner').style.display = 'block';
+                
+                // Play notification sound or simple console log
+                console.log(`[SMS OTP SIMULATOR] Code: $\{{generatedOtp}}`);
+                
+                // Show OTP input box
+                document.getElementById('otpBox').style.display = 'block';
+            }}, 1800);
         }}
 
         async function verifyOtp() {{
@@ -1647,8 +2354,8 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             const mobile = document.getElementById('loginMobile').value;
             const otp = document.getElementById('loginOtp').value;
 
-            if (otp !== '123456') {{
-                alert('Invalid verification OTP code. Hint: 123456');
+            if (otp !== generatedOtp) {{
+                alert('Invalid verification OTP code. Please check the SMS banner at the top of the page!');
                 return;
             }}
 
@@ -1764,13 +2471,52 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                 }}, 3000);
             }}
         }}
+
+        async function pollOrders() {{
+            try {{
+                const res = await fetch('/api/delivery/orders');
+                if (res.ok) {{
+                    const json = await res.json();
+                    const newOrders = json.data || [];
+                    
+                    // Check if there are new orders that weren't present before
+                    if (loggedInPartner && newOrders.length > orders.length && orders.length > 0) {{
+                        showSmsNotification("New order placed by customer! Check UAT dashboard.");
+                    }}
+                    
+                    orders = newOrders;
+                    if (loggedInPartner) {{
+                        renderConsoleOrders();
+                    }}
+                }}
+            }} catch(e) {{
+                console.error("Failed to poll orders:", e);
+            }}
+        }}
+
+        function showSmsNotification(msg) {{
+            document.getElementById('smsMessage').innerText = msg;
+            document.getElementById('smsBanner').style.display = 'block';
+            setTimeout(() => {{
+                document.getElementById('smsBanner').style.display = 'none';
+            }}, 6000);
+        }}
+
+        // Periodically poll backend database for new customer orders
+        setInterval(pollOrders, 3000);
     </script>
 </body>
 </html>
 """
 
+
+class ThreadingServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
 Handler = ApiHandler
-with socketserver.TCPServer(("", PORT), Handler) as httpd:
+with ThreadingServer(("", PORT), Handler) as httpd:
     print("Local backend API server active at port", PORT)
-    print("Access admin panel at http://localhost:8080/admin")
+    print("Testing portal at http://localhost:3000")
+    print("Admin panel at http://localhost:8080/admin")
     httpd.serve_forever()

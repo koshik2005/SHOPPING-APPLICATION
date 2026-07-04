@@ -209,6 +209,7 @@ class UserProfile {
   final String preferredLanguage;
   final String preferredCurrency;
   final String themePreference;
+  final String? googleSub;
 
   UserProfile({
     required this.name,
@@ -222,6 +223,7 @@ class UserProfile {
     required this.preferredLanguage,
     required this.preferredCurrency,
     required this.themePreference,
+    this.googleSub,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -237,6 +239,7 @@ class UserProfile {
       preferredLanguage: json['preferredLanguage'] ?? 'English',
       preferredCurrency: json['preferredCurrency'] ?? 'USD',
       themePreference: json['themePreference'] ?? 'light',
+      googleSub: json['googleSub'],
     );
   }
 
@@ -253,6 +256,7 @@ class UserProfile {
       'preferredLanguage': preferredLanguage,
       'preferredCurrency': preferredCurrency,
       'themePreference': themePreference,
+      'googleSub': googleSub,
     };
   }
 
@@ -268,6 +272,7 @@ class UserProfile {
     String? preferredLanguage,
     String? preferredCurrency,
     String? themePreference,
+    String? googleSub,
   }) {
     return UserProfile(
       name: name ?? this.name,
@@ -281,6 +286,7 @@ class UserProfile {
       preferredLanguage: preferredLanguage ?? this.preferredLanguage,
       preferredCurrency: preferredCurrency ?? this.preferredCurrency,
       themePreference: themePreference ?? this.themePreference,
+      googleSub: googleSub ?? this.googleSub,
     );
   }
 }
@@ -298,6 +304,7 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
     preferredLanguage: 'English',
     preferredCurrency: 'USD',
     themePreference: 'light',
+    googleSub: null,
   ));
 
   void updateProfile(UserProfile updated) => state = updated;

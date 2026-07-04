@@ -50,8 +50,8 @@ Future<void> _handleGoogleAuth(BuildContext context, WidgetRef ref, String name,
   showDialog(context: context, barrierDismissible: false, builder: (context) => const Center(child: CircularProgressIndicator()));
   
   try {
-    print('[AUTH LOG] 9. Backend request dispatching...');
-    final data = await ref.read(authRepositoryProvider).loginWithGoogle(
+    print('[AUTH LOG] 9. Backend request dispatching (google-login)...');
+    final responseRoot = await ref.read(authRepositoryProvider).loginWithGoogle(
       idToken,
       {
         'deviceId': 'device_android_990',
@@ -62,14 +62,20 @@ Future<void> _handleGoogleAuth(BuildContext context, WidgetRef ref, String name,
         'fcmToken': 'fcm_token_placeholder',
       },
     );
-    print('[AUTH LOG] 10. Backend response: $data');
+    print('[AUTH LOG] 10. Backend response: $responseRoot');
+    
+    // Audit check: Extract the nested 'data' field from the response map
+    final data = responseRoot['data'] as Map<String, dynamic>? ?? responseRoot;
     
     if (isLoaderShowing && context.mounted) { Navigator.pop(context); isLoaderShowing = false; }
     if (!context.mounted) return;
     
     final authState = data['authenticationState'] ?? data['status'];
+    print('[AUTH LOG] 11. Parsed authenticationState/status: $authState');
+    
     if (authState == 'PASSWORD_REQUIRED' || authState == 'USER_EXISTS' || authState == 'PHONE_VERIFICATION_REQUIRED' || authState == 'EMAIL_VERIFICATION_REQUIRED') {
       final existingProfile = data['existingProfile'] ?? data['data'] ?? {};
+      print('[AUTH LOG] 12. State matched Verification Screen. Navigating...');
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -84,6 +90,7 @@ Future<void> _handleGoogleAuth(BuildContext context, WidgetRef ref, String name,
       );
     } else if (authState == 'REGISTRATION_REQUIRED' || authState == 'USER_NOT_FOUND') {
       final googleProfile = data['googleProfile'] ?? {};
+      print('[AUTH LOG] 12. State matched REGISTRATION_REQUIRED. Updating tempRegistrationProvider...');
       ref.read(tempRegistrationProvider.notifier).state = UserProfile(
         name: googleProfile['displayName'] ?? name,
         email: googleProfile['email'] ?? email,
@@ -96,7 +103,9 @@ Future<void> _handleGoogleAuth(BuildContext context, WidgetRef ref, String name,
         preferredLanguage: 'English',
         preferredCurrency: 'USD',
         themePreference: 'light',
+        googleSub: googleProfile['googleSub'] ?? '',
       );
+      print('[AUTH LOG] 13. Navigating to SignUpScreen...');
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => const SignUpScreen()),
@@ -104,6 +113,7 @@ Future<void> _handleGoogleAuth(BuildContext context, WidgetRef ref, String name,
     } else if (authState == 'LOGIN_COMPLETED') {
       final user = data['user'] ?? {};
       final profile = user['profile'] ?? {};
+      print('[AUTH LOG] 12. State matched LOGIN_COMPLETED. Updating userProfileProvider...');
       ref.read(userProfileProvider.notifier).updateProfile(UserProfile(
         name: profile['displayName'] ?? name,
         email: user['email'] ?? email,
@@ -116,6 +126,7 @@ Future<void> _handleGoogleAuth(BuildContext context, WidgetRef ref, String name,
         preferredLanguage: 'English',
         preferredCurrency: 'USD',
         themePreference: 'light',
+        googleSub: profile['googleSub'] ?? '',
       ));
       ref.read(authStateProvider.notifier).state = true;
       await SessionManager.saveSession(
@@ -125,12 +136,17 @@ Future<void> _handleGoogleAuth(BuildContext context, WidgetRef ref, String name,
         role: user['role'],
         expiresIn: data['expiresIn'],
       );
+      print('[AUTH LOG] 13. Session saved. Navigating to /permission...');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Welcome back, ${profile['displayName'] ?? name}!'), backgroundColor: const Color(0xFF006D5B)),
       );
       context.go('/permission');
+    } else {
+      print('[AUTH LOG] 12. Unhandled authState: $authState');
     }
-  } catch (e) {
+  } catch (e, stack) {
+    print('[AUTH LOG] 12. Catch block triggered due to error: $e');
+    print(stack);
     if (isLoaderShowing && context.mounted) { Navigator.pop(context); isLoaderShowing = false; }
     if (!context.mounted) return;
 
@@ -138,6 +154,7 @@ Future<void> _handleGoogleAuth(BuildContext context, WidgetRef ref, String name,
     if (e is DioException) {
       statusCode = e.response?.statusCode;
     }
+    print('[AUTH LOG] 13. Exception status code: $statusCode');
     
     if (statusCode == 404) {
       final googleUser = UserProfile(
@@ -152,12 +169,16 @@ Future<void> _handleGoogleAuth(BuildContext context, WidgetRef ref, String name,
         preferredLanguage: 'English',
         preferredCurrency: 'USD',
         themePreference: 'light',
+        googleSub: null,
       );
       ref.read(tempRegistrationProvider.notifier).state = googleUser;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Google account not registered. Please complete your registration details.')),
       );
-      context.push('/signup');
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SignUpScreen()),
+      );
       return;
     }
 
@@ -316,6 +337,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
             preferredLanguage: 'English',
             preferredCurrency: 'USD',
             themePreference: 'light',
+            googleSub: null,
           ));
           ref.read(authStateProvider.notifier).state = true;
           await SessionManager.saveSession(
@@ -339,7 +361,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       if (!mounted) return;
       setState(() => _isLoading = false);
       ref.read(sentOtpProvider.notifier).state = '123456';
-      ref.read(tempRegistrationProvider.notifier).state = UserProfile(name: 'Test User', email: id.contains('@') ? id : 'user@example.com', mobileNumber: !id.contains('@') ? id : '+10000000000', gender: 'Male', dob: '1990-01-01', profilePhotoUrl: '', addresses: [], savedPlaces: {}, preferredLanguage: 'English', preferredCurrency: 'USD', themePreference: 'light');
+      ref.read(tempRegistrationProvider.notifier).state = UserProfile(name: 'Test User', email: id.contains('@') ? id : 'user@example.com', mobileNumber: !id.contains('@') ? id : '+10000000000', gender: 'Male', dob: '1990-01-01', profilePhotoUrl: '', addresses: [], savedPlaces: {}, preferredLanguage: 'English', preferredCurrency: 'USD', themePreference: 'light', googleSub: null);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Offline mode. Use OTP: 123456')));
       context.push('/otp?isRecovery=false');
     }
@@ -632,6 +654,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
             preferredLanguage: 'English',
             preferredCurrency: 'USD',
             themePreference: 'light',
+            googleSub: ref.read(tempRegistrationProvider)?.googleSub,
           ));
           ref.read(authStateProvider.notifier).state = true;
           await SessionManager.saveSession(
@@ -648,7 +671,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
         } else {
           // Fallback if OTP is triggered
           ref.read(sentOtpProvider.notifier).state = data?['otp'] ?? '';
-          ref.read(tempRegistrationProvider.notifier).state = UserProfile(name: _nameController.text, email: _emailController.text, mobileNumber: _mobileController.text, gender: _selectedGender, dob: dobStr, profilePhotoUrl: '', addresses: [_addressController.text], savedPlaces: {'Home': _addressController.text}, preferredLanguage: 'English', preferredCurrency: 'USD', themePreference: 'light');
+          ref.read(tempRegistrationProvider.notifier).state = UserProfile(name: _nameController.text, email: _emailController.text, mobileNumber: _mobileController.text, gender: _selectedGender, dob: dobStr, profilePhotoUrl: '', addresses: [_addressController.text], savedPlaces: {'Home': _addressController.text}, preferredLanguage: 'English', preferredCurrency: 'USD', themePreference: 'light', googleSub: ref.read(tempRegistrationProvider)?.googleSub);
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account created! OTP sent for verification.')));
           context.push('/otp?isRecovery=false');
         }
@@ -659,7 +682,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
       if (!mounted) return;
       setState(() => _isLoading = false);
       ref.read(sentOtpProvider.notifier).state = '123456';
-      ref.read(tempRegistrationProvider.notifier).state = UserProfile(name: _nameController.text, email: _emailController.text, mobileNumber: _mobileController.text, gender: _selectedGender, dob: dobStr, profilePhotoUrl: ref.read(tempRegistrationProvider)?.profilePhotoUrl ?? '', addresses: [_addressController.text], savedPlaces: {'Home': _addressController.text}, preferredLanguage: 'English', preferredCurrency: 'USD', themePreference: 'light');
+      ref.read(tempRegistrationProvider.notifier).state = UserProfile(name: _nameController.text, email: _emailController.text, mobileNumber: _mobileController.text, gender: _selectedGender, dob: dobStr, profilePhotoUrl: ref.read(tempRegistrationProvider)?.profilePhotoUrl ?? '', addresses: [_addressController.text], savedPlaces: {'Home': _addressController.text}, preferredLanguage: 'English', preferredCurrency: 'USD', themePreference: 'light', googleSub: ref.read(tempRegistrationProvider)?.googleSub);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Offline mode. Use OTP: 123456')));
       context.push('/otp?isRecovery=false');
     }
@@ -715,6 +738,32 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Register to access hyperlocal delivery and transit', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                    const SizedBox(height: 20),
+                    Center(
+                      child: Stack(
+                        children: [
+                          CircleAvatar(
+                            radius: 40,
+                            backgroundColor: const Color(0xFFFFDBCB),
+                            backgroundImage: ref.watch(tempRegistrationProvider)?.profilePhotoUrl.isNotEmpty == true
+                                ? NetworkImage(ref.watch(tempRegistrationProvider)!.profilePhotoUrl)
+                                : null,
+                            child: ref.watch(tempRegistrationProvider)?.profilePhotoUrl.isNotEmpty == true
+                                ? null
+                                : const Icon(Icons.person, size: 40, color: Color(0xFFFF6D00)),
+                          ),
+                          if (ref.watch(tempRegistrationProvider)?.profilePhotoUrl.isNotEmpty == true)
+                            Positioned(
+                              bottom: 0, right: 0,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(color: Color(0xFFFF6D00), shape: BoxShape.circle),
+                                child: const Icon(Icons.check, size: 14, color: Colors.white),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(height: 24),
                     _label('Full Name'), _field(c: _nameController, f: _nameFocus, hint: 'Alex Johnson', err: _errors['name'], kt: TextInputType.name, ta: TextInputAction.next, sub: (_) => _emailFocus.requestFocus(), icon: Icons.person_outline, onChange: (_) { if (_errors.containsKey('name')) setState(() => _errors.remove('name')); }),
                     _label('Email Address'), _field(c: _emailController, f: _emailFocus, hint: 'alex@gmail.com', err: _errors['email'], kt: TextInputType.emailAddress, ta: TextInputAction.next, sub: (_) => _mobileFocus.requestFocus(), icon: Icons.mail_outline, onChange: (_) { if (_errors.containsKey('email')) setState(() => _errors.remove('email')); }),
@@ -1336,6 +1385,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           preferredLanguage: 'English',
           preferredCurrency: 'USD',
           themePreference: 'light',
+          googleSub: null,
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

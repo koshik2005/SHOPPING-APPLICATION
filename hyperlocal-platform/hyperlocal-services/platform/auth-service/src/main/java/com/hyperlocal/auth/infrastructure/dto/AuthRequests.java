@@ -45,6 +45,8 @@ public class AuthRequests {
 
         @NotBlank
         private String otpCode;
+
+        private boolean takeover = false;
     }
 
     @Data
@@ -55,6 +57,8 @@ public class AuthRequests {
 
         @NotBlank
         private String password;
+
+        private boolean takeover = false;
     }
 
     @Data

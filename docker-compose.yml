@@ -31,6 +31,8 @@ x-common-env: &common-env
   DB_PASS: ${DB_PASS:-hyperlocal_secure_pass}
   REDIS_HOST: redis
   REDIS_PORT: "6379"
+  SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-hyperlocal_secure_redis_pass}
+  SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD:-hyperlocal_secure_redis_pass}
   RABBITMQ_HOST: rabbitmq
   RABBITMQ_PORT: "5672"
   RABBITMQ_USER: ${RABBITMQ_USER:-guest}
@@ -86,7 +88,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: hyperlocal-redis
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --requirepass hyperlocal_secure_redis_pass --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
@@ -94,7 +96,7 @@ services:
     networks:
       - hyperlocal-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "hyperlocal_secure_redis_pass", "ping"]
       <<: *healthcheck-defaults
 
   rabbitmq:
@@ -528,3 +530,16 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8098/actuator/health"]
       <<: *healthcheck-defaults
+
+  enterprise-portal:
+    build:
+      context: ./enterprise-portal
+      dockerfile: Dockerfile
+    container_name: hyperlocal-enterprise-portal
+    ports:
+      - "4000:80"
+    networks:
+      - hyperlocal-network
+    depends_on:
+      api-gateway:
+        condition: service_healthy

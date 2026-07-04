@@ -40,31 +40,19 @@
     "walletBalance": 50.0
   },
   "branches": {
-    "branch-a": {
-      "id": "branch-a",
-      "name": "Downtown Main Hub",
-      "address": "100 Main St, San Francisco",
-      "workingHours": "08:00 AM - 10:00 PM",
+    "branch-618e": {
+      "id": "branch-618e",
+      "name": "Tirukkoilur - Branch",
+      "address": "5 street road, tirukkoilur ",
       "isOpen": true,
-      "categories": [
-        {
-          "id": "medical",
-          "label": "medical",
-          "iconUrl": "\ud83d\ude37",
-          "isAvailable": true,
-          "displayOrder": 1
-        }
-      ],
-      "products": [
-        {
-          "id": "tablet",
-          "categoryId": "medical",
-          "name": "tablet",
-          "description": "",
-          "price": 100.0,
-          "isAvailable": true
-        }
-      ]
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "servingRadiusKm": 5,
+      "deliveryFee": 2.5,
+      "workingHours": "08:00 AM - 10:00 PM",
+      "taxRate": 0.08,
+      "categories": [],
+      "products": []
     }
   },
   "orders": []

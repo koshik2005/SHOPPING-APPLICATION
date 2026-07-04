@@ -4,6 +4,7 @@ import com.hyperlocal.inventory.infrastructure.entity.*;
 import com.hyperlocal.inventory.infrastructure.repository.*;
 import com.hyperlocal.inventory.infrastructure.dto.*;
 import com.hyperlocal.common.exception.ResourceNotFoundException;
+import com.hyperlocal.common.context.AuthContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +33,14 @@ public class InventoryService {
 
     @Transactional(readOnly = true)
     public List<ProductDto> getProductsByShop(UUID shopId) {
+        AuthContext.AuthContextData ctx = AuthContext.get();
+        if (ctx != null) {
+            boolean isShopOwnerOrMgr = ctx.hasRole("ROLE_SHOP_OWNER") || ctx.hasRole("ROLE_SHOP_MANAGER");
+            if (isShopOwnerOrMgr && !shopId.equals(ctx.shopId()) && !ctx.isSuperAdmin()) {
+                throw new RuntimeException("FORBIDDEN: Access denied to other shop's products");
+            }
+        }
+
         return productRepository.findByShopIdAndDeletedFalse(shopId).stream()
             .map(prod -> ProductDto.builder()
                 .id(prod.getId())
@@ -52,6 +61,11 @@ public class InventoryService {
 
     @Transactional
     public CategoryDto createCategory(CategoryDto request) {
+        AuthContext.AuthContextData ctx = AuthContext.get();
+        if (ctx == null || (!ctx.isSuperAdmin() && !ctx.hasRole("ROLE_SYSTEM_ADMIN"))) {
+            throw new RuntimeException("FORBIDDEN: Only administrators can create categories");
+        }
+
         CategoryEntity entity = new CategoryEntity();
         entity.setName(request.getName());
         entity.setIconUrl(request.getIconUrl());
@@ -65,6 +79,23 @@ public class InventoryService {
 
     @Transactional
     public ProductDto createProduct(ProductDto request) {
+        AuthContext.AuthContextData ctx = AuthContext.get();
+        if (ctx == null) {
+            throw new RuntimeException("UNAUTHORIZED: Authentication context is missing");
+        }
+
+        boolean isAdmin = ctx.isSuperAdmin() || ctx.hasRole("ROLE_SYSTEM_ADMIN");
+        boolean isShopOwnerOrMgr = ctx.hasRole("ROLE_SHOP_OWNER") || ctx.hasRole("ROLE_SHOP_MANAGER");
+        boolean isBranchMgr = ctx.hasRole("ROLE_BRANCH_MANAGER");
+
+        if (!isAdmin && !isShopOwnerOrMgr && !isBranchMgr) {
+            throw new RuntimeException("FORBIDDEN: You do not have permission to create products");
+        }
+
+        if (isShopOwnerOrMgr && !request.getShopId().equals(ctx.shopId())) {
+            throw new RuntimeException("FORBIDDEN: Cannot create products for another shop");
+        }
+
         ProductEntity entity = new ProductEntity();
         entity.setShopId(request.getShopId());
         entity.setCategoryId(request.getCategoryId());
