@@ -24,7 +24,20 @@ class ShopScreen extends ConsumerWidget {
     final cart = ref.watch(dynamicCartProvider);
     final merchants = ref.watch(merchantListProvider);
     
-    final merchant = merchants.firstWhere((m) => m.id == 'm1');
+    final merchant = merchants.isNotEmpty 
+        ? (merchants.any((m) => m.id == 'm1') ? merchants.firstWhere((m) => m.id == 'm1') : merchants.first)
+        : MerchantInfo(
+            id: 'default',
+            name: 'Local Merchant',
+            logoUrl: '',
+            bannerUrl: '',
+            rating: 4.8,
+            openingTime: '08:00 AM',
+            closingTime: '09:00 PM',
+            deliveryFee: 1.99,
+            minOrderValue: 10.0,
+            averagePrepTimeMinutes: 15,
+          );
     final totalItems = cart.fold<int>(0, (sum, item) => sum + item.quantity);
 
     return Scaffold(
