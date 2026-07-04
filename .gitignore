@@ -52,3 +52,4 @@ app.*.map.json
 database.json
 add_ts_nocheck.py
 *.md
+testing-portal/
