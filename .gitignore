@@ -47,3 +47,7 @@ app.*.map.json
 # Java & Maven Build
 **/target/
 .m2/
+
+# Local testing states & helper scripts
+database.json
+add_ts_nocheck.py
