@@ -12,7 +12,7 @@
 -- 1. Add tenant scoping columns to users table
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS branch_id  UUID REFERENCES branches(id) ON DELETE SET NULL,
-    ADD COLUMN IF NOT EXISTS shop_id    UUID ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS shop_id    UUID,
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP,
     ADD COLUMN IF NOT EXISTS deleted_by UUID REFERENCES users(id) ON DELETE SET NULL;
 
