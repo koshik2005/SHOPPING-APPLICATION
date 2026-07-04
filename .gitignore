@@ -51,3 +51,4 @@ app.*.map.json
 # Local testing states & helper scripts
 database.json
 add_ts_nocheck.py
+*.md
