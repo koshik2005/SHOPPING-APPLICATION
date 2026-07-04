@@ -520,6 +520,10 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                             }
                         }
                 elif path_only == '/api/v1/auth/verify-password':
+                    email = payload.get("email", "Kishore.r.cseacet@gmail.com")
+                    is_admin = "admin" in email.lower()
+                    user_role = "ROLE_SUPER_ADMIN" if is_admin else "ROLE_CUSTOMER"
+                    user_roles = ["ROLE_SUPER_ADMIN"] if is_admin else ["ROLE_CUSTOMER"]
                     mock_data = {
                         "status": "SUCCESS",
                         "data": {
@@ -529,17 +533,22 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                             "expiresIn": 3600,
                             "user": {
                                 "id": "87ef769c-d021-4f11-ba32-aafe812bb31c",
-                                "email": payload.get("email", "Kishore.r.cseacet@gmail.com"),
+                                "email": email,
                                 "mobileNumber": "+15559990001",
-                                "role": "CUSTOMER",
+                                "role": user_role,
+                                "roles": user_roles,
                                 "profile": {
-                                    "displayName": "Kishore R",
+                                    "displayName": "Administrator" if is_admin else "Kishore R",
                                     "profilePhotoUrl": ""
                                 }
                             }
                         }
                     }
                 else:
+                    email = payload.get("email", "Kishore.r.cseacet@gmail.com")
+                    is_admin = "admin" in email.lower()
+                    user_role = "ROLE_SUPER_ADMIN" if is_admin else "ROLE_CUSTOMER"
+                    user_roles = ["ROLE_SUPER_ADMIN"] if is_admin else ["ROLE_CUSTOMER"]
                     mock_data = {
                         "status": "SUCCESS",
                         "data": {
@@ -549,11 +558,12 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                             "expiresIn": 3600,
                             "user": {
                                 "id": "87ef769c-d021-4f11-ba32-aafe812bb31c",
-                                "email": payload.get("email", "Kishore.r.cseacet@gmail.com"),
+                                "email": email,
                                 "mobileNumber": "+15559990001",
-                                "role": "CUSTOMER",
+                                "role": user_role,
+                                "roles": user_roles,
                                 "profile": {
-                                    "displayName": "Kishore R",
+                                    "displayName": "Administrator" if is_admin else "Kishore R",
                                     "profilePhotoUrl": ""
                                 }
                             }
